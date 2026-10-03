@@ -84,7 +84,18 @@ export async function revokeWorkerToken(person: string): Promise<void> {
   }
 }
 
-/** The command a person runs on their PC to connect it as their worker. */
-export function workerConnectCommand(serverOrigin: string, token: string): string {
+/**
+ * The command a person runs on their PC to connect it as their worker. The
+ * shell is guessed from the browser's platform: PowerShell cannot read the
+ * POSIX `VAR=value cmd` prefix form.
+ */
+export function workerConnectCommand(
+  serverOrigin: string,
+  token: string,
+  platform: string = typeof navigator === 'undefined' ? '' : navigator.platform,
+): string {
+  if (/^win/i.test(platform)) {
+    return `$env:OD_WORKER_TOKEN = "${token}"; od worker --server ${serverOrigin}`;
+  }
   return `OD_WORKER_TOKEN=${token} od worker --server ${serverOrigin}`;
 }

@@ -352,13 +352,20 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       }
       // The copy is not needed past this point; remove it before the server
       // hears the run ended, so nothing of it outlives the run.
-      if (run.root) await fs.promises.rm(run.root, { recursive: true, force: true }).catch(() => {});
+      if (run.root) await removeRunRoot(run.root).catch(() => {});
       if (!run.gone) await post(workerBridgeRunExitPath(run.runId), report, EXIT_POST_ATTEMPTS);
       runs.delete(run.runId);
       options.onEvent?.({ type: 'finished', runId: run.runId, result: report });
       run.markDone();
     });
   };
+
+  /**
+   * Removes a run directory, retrying while Windows still reports a file as
+   * busy (an agent that has not fully exited, antivirus scanning a new file).
+   */
+  const removeRunRoot = (root: string): Promise<void> =>
+    fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 
   const workRoot = options.workRoot ?? path.join(os.tmpdir(), 'od-worker');
 
@@ -377,7 +384,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
     await fs.promises.mkdir(workRoot, { recursive: true });
     if (run.root) {
       // Left over from a worker that stopped mid-run.
-      await fs.promises.rm(run.root, { recursive: true, force: true });
+      await removeRunRoot(run.root);
     } else {
       run.root = await fs.promises.mkdtemp(path.join(workRoot, 'run-'));
     }

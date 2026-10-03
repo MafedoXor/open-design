@@ -34,3 +34,15 @@
 ## Notes
 
 Record the Windows build, Node version, agent CLI versions and any defects here or in follow-up tickets.
+
+## Results (partial, agent-run on Windows 11 Pro 10.0.26200, Node 24.15.0, pnpm 10.33.2)
+
+Only checks that need no Docker server, tailnet or signed-in agent CLI were run. Status stays `ready-for-human`.
+
+- [x] Check 1: `pnpm install` was already done; `pnpm --filter @open-design/daemon build` succeeds; `od worker --help` runs.
+- [x] Check 2 (partly): the shown command was POSIX-only and does not parse in PowerShell. Fixed: the UI now shows `$env:OD_WORKER_TOKEN = "…"; od worker --server …` when the browser platform is Windows (`apps/web/tests/workers/connect-command.test.ts`). Still to do by hand: paste it in a real PowerShell.
+- [x] Checks 22/23/24 (partly): `packProject` on Windows emits `/`-separated paths, keeps spaces and non-ASCII names, and skips `node_modules`. Not run: CRLF round trip, >260-char paths, 25 MB cap, `.git`, server-wins conflicts.
+- [x] Check 27: the per-run copy was removed with a bare `rm`, and the error was swallowed, so an EBUSY/EPERM left it behind. Now retries (5 × 200 ms) in `worker-runs.ts`. Not verified against a real held-open file.
+- Not run (need the real setup): 3–6, 8 (Windows tree kill), 9–11, 12–16.
+- Open decision for check 9: `reapProcessGroup` is still a no-op on win32; leftover tool processes after a normal exit are not handled.
+- Known test-env failure on Windows without symlink rights: `worker-project-roundtrip.test.ts` "refuses to write through a symlink" (EPERM creating the symlink; also fails on a clean checkout).
