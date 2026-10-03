@@ -1,0 +1,30 @@
+# Private-network override for docker-compose.yml.
+#
+# For a small team that reaches the server only over a private network
+# (Tailscale or WireGuard) and runs agents on their own PCs as remote
+# workers. Read PRIVATE-NETWORK.md before using it.
+#
+# - Publishes the port on the server's private-network address only, never
+#   on 127.0.0.1-plus-proxy or 0.0.0.0. Compose refuses to start without
+#   OPEN_DESIGN_PRIVATE_ADDRESS.
+# - Turns browser login off: no OD_API_TOKEN, OD_DISABLE_API_AUTH=1. Anyone
+#   who can reach the address can use the site, so the private network is
+#   the only lock on the site, and each person's worker token is the only
+#   lock on the worker bridge. Never point OPEN_DESIGN_PRIVATE_ADDRESS at a
+#   public interface.
+# - Requires OPEN_DESIGN_ALLOWED_ORIGINS, the exact browser origin(s) people
+#   type, because Tailscale addresses (100.64.0.0/10) and MagicDNS names are
+#   not treated as private-LAN origins by the daemon.
+#
+# Usage, from deploy/:
+#   docker compose -f docker-compose.yml -f docker-compose.private-network.yml up -d --no-build
+name: open-design
+
+services:
+  open-design:
+    ports: !override
+      - "${OPEN_DESIGN_PRIVATE_ADDRESS:?set OPEN_DESIGN_PRIVATE_ADDRESS to this server's private-network address (see PRIVATE-NETWORK.md)}:${OPEN_DESIGN_PORT:-7456}:7456"
+    environment:
+      OD_API_TOKEN: ""
+      OD_DISABLE_API_AUTH: "1"
+      OD_ALLOWED_ORIGINS: ${OPEN_DESIGN_ALLOWED_ORIGINS:?set OPEN_DESIGN_ALLOWED_ORIGINS to the browser origin(s) of this server, e.g. http://<private-address>:7456 (see PRIVATE-NETWORK.md)}

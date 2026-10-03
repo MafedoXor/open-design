@@ -83,6 +83,11 @@ through that authenticated proxy. It disables daemon-side bearer enforcement for
 all `/api/*` requests, so direct access to the daemon must remain blocked. The
 Compose variable maps to daemon env `OD_DISABLE_API_AUTH`.
 
+For a small team on a private network (Tailscale or WireGuard) that wants no
+browser login and runs agents on each person's own PC as a remote worker, follow
+[`PRIVATE-NETWORK.md`](PRIVATE-NETWORK.md) and its
+`docker-compose.private-network.yml` override instead of the settings above.
+
 Pin a specific published image with a digest instead of the mutable `latest` tag:
 
 ```bash

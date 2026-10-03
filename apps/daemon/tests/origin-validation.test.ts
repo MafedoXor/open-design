@@ -331,6 +331,19 @@ describe('daemon origin validation middleware', () => {
     }
   });
 
+  // deploy/PRIVATE-NETWORK.md requires OPEN_DESIGN_ALLOWED_ORIGINS because of this.
+  it('blocks a Tailscale (100.64.0.0/10) origin that is not configured', async () => {
+    const tailnetHost = `100.86.154.169:${port}`;
+    const res = await request(port, 'POST', '/api/active', {
+      origin: `http://${tailnetHost}`,
+      headers: {
+        Host: tailnetHost,
+        'content-type': 'application/json',
+      },
+    });
+    expect(res.status).toBe(403);
+  });
+
   // --- Origin: null (sandboxed iframe previews) ---
 
   it('allows Origin: null for GET raw-file preview routes', async () => {
