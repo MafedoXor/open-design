@@ -155,9 +155,48 @@ export function remapProjectPath(value: string, serverDir: string, localDir: str
   }
 }
 
+function remapJsonStrings(value: unknown, serverDir: string, localDir: string): unknown {
+  if (typeof value === 'string') return remapProjectPath(value, serverDir, localDir);
+  if (Array.isArray(value)) return value.map((item) => remapJsonStrings(item, serverDir, localDir));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, remapJsonStrings(item, serverDir, localDir)]),
+    );
+  }
+  return value;
+}
+
+/**
+ * `remapProjectPath` for text written to an agent's stdin. A line that is a
+ * JSON object (the stream-json input) is remapped inside its string values
+ * and written back, so a worker path with backslashes is escaped instead of
+ * corrupting the line. Any other text is remapped as is.
+ */
+export function remapStdinPaths(text: string, serverDir: string, localDir: string): string {
+  if (!serverDir) return text;
+  return text
+    .split('\n')
+    .map((line) => {
+      if (line.trimStart().startsWith('{')) {
+        try {
+          return JSON.stringify(remapJsonStrings(JSON.parse(line), serverDir, localDir));
+        } catch {
+          // Not JSON after all; fall through to the plain rewrite.
+        }
+      }
+      return remapProjectPath(line, serverDir, localDir);
+    })
+    .join('\n');
+}
+
 /** `text` with the server's project path moved to this PC's copy (argv, env, prompt). */
 function toPcPaths(run: ActiveRun, text: string): string {
   return run.project ? remapProjectPath(text, run.project.dir, run.cwd) : text;
+}
+
+/** `toPcPaths` for stdin, which may carry JSON lines. */
+function toPcStdin(run: ActiveRun, text: string): string {
+  return run.project ? remapStdinPaths(text, run.project.dir, run.cwd) : text;
 }
 
 /** The callback variables the server sent, with its project path moved to this PC's copy. */
@@ -461,10 +500,10 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       finish(run, { code, signal });
     });
     if (typeof request.stdin === 'object' && request.stdin && typeof request.stdin.prompt === 'string') {
-      child.stdin?.end(toPcPaths(run, request.stdin.prompt));
+      child.stdin?.end(toPcStdin(run, request.stdin.prompt));
       return;
     }
-    for (const text of run.pendingStdin.splice(0)) child.stdin?.write(toPcPaths(run, text));
+    for (const text of run.pendingStdin.splice(0)) child.stdin?.write(toPcStdin(run, text));
     if (run.pendingStdinEnd) child.stdin?.end();
   };
 
@@ -545,7 +584,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       const { data: text } = data as WorkerRunStdinEvent;
       if (typeof text !== 'string') return;
       if (!child) run.pendingStdin.push(text);
-      else if (child.stdin?.writable) child.stdin.write(toPcPaths(run, text));
+      else if (child.stdin?.writable) child.stdin.write(toPcStdin(run, text));
     } else if (event === WORKER_RUN_EVENTS.stdinEnd) {
       if (!child) run.pendingStdinEnd = true;
       else child.stdin?.end();
