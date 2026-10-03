@@ -3108,14 +3108,14 @@
 
 .app .df-panel,
 .app .df-main {
-  background: #fff;
+  background: var(--bg);
 }
 .app .df-main {
   border-right-color: var(--border);
 }
 .app .df-body {
   padding: 4px 20px 20px;
-  background: #fff;
+  background: var(--bg);
 }
 .app .df-controls-row {
   margin: 0 0 14px;

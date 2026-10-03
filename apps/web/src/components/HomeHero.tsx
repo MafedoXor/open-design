@@ -92,7 +92,10 @@ import { LibraryPicker } from './LibraryPicker';
 import { assetTitle } from './LibraryAssetMeta';
 import { libraryAssetRawUrl } from '../providers/registry';
 import type { LibraryAsset } from '@open-design/contracts';
+import type { OpenDesignHostProjectImportSuccess } from '@open-design/host';
+import type { ImportClaudeDesignOutcome } from './NewProjectPanel';
 import { WorkingDirPicker } from './WorkingDirPicker';
+import { useOpenFolderImport } from './useOpenFolderImport';
 import {
   ProjectReferenceModal,
   type ProjectReferenceSelection,
@@ -238,6 +241,13 @@ interface Props {
   workingDir?: string | null;
   recentDirs?: string[];
   onPickWorkingDir?: () => Promise<string | null> | string | null | void;
+  /** Open a local folder as its own project (the native-folder project flow). */
+  onImportFolder?: (baseDir: string) => Promise<void> | void;
+  /** Import a Claude Design .zip export as a new project. */
+  onImportClaudeDesign?: (
+    file: File,
+  ) => Promise<ImportClaudeDesignOutcome | void> | ImportClaudeDesignOutcome | void;
+  onImportFolderResponse?: (response: OpenDesignHostProjectImportSuccess) => Promise<void> | void;
   onPickLocalCodeDir?: () => Promise<string | null> | string | null | void;
   onSelectRecentWorkingDir?: (dir: string) => void;
   onClearWorkingDir?: () => void;
@@ -417,6 +427,9 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
     workingDir = null,
     recentDirs = [],
     onPickWorkingDir,
+    onImportFolder,
+    onImportFolderResponse,
+    onImportClaudeDesign,
     onPickLocalCodeDir,
     onSelectRecentWorkingDir,
     onClearWorkingDir,
@@ -431,6 +444,27 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
 ) {
   const { locale, t } = useI18n();
   const analytics = useAnalytics();
+  const folderImport = useOpenFolderImport({ onImportFolder, onImportFolderResponse });
+  const claudeZipInputRef = useRef<HTMLInputElement | null>(null);
+  const [claudeZipImporting, setClaudeZipImporting] = useState(false);
+  const [claudeZipError, setClaudeZipError] = useState<string | null>(null);
+  async function handleClaudeZipPicked(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file || !onImportClaudeDesign) return;
+    setClaudeZipImporting(true);
+    setClaudeZipError(null);
+    try {
+      const result = await onImportClaudeDesign(file);
+      if (result?.ok === false) {
+        setClaudeZipError(result.message ? `Import failed: ${result.message}` : 'Import failed');
+      }
+    } catch (err) {
+      setClaudeZipError(err instanceof Error ? `Import failed: ${err.message}` : 'Import failed');
+    } finally {
+      setClaudeZipImporting(false);
+    }
+  }
   // Docked = the composer without Home's page around it. Read in the render
   // below to drop the furniture (headline, type row, example grid) rather than
   // to change how the composer itself behaves.
@@ -2535,6 +2569,55 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
                 : null
             }
           />
+        ) : null}
+        {folderImport.available ? (
+          <button
+            type="button"
+            className="plus-menu__trigger plus-menu__trigger--labeled"
+            data-testid="home-hero-open-folder"
+            disabled={folderImport.importing}
+            title={t('newproj.openFolder')}
+            onClick={() => void folderImport.openFolder()}
+          >
+            <Icon name="folder" size={16} />
+            <span className="plus-menu__trigger-label">
+              {folderImport.importing ? t('newproj.openingFolder') : t('newproj.openFolder')}
+            </span>
+          </button>
+        ) : null}
+        {onImportClaudeDesign ? (
+          <>
+            <input
+              ref={claudeZipInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={(ev) => void handleClaudeZipPicked(ev)}
+            />
+            <button
+              type="button"
+              className="plus-menu__trigger plus-menu__trigger--labeled"
+              data-testid="home-hero-import-claude-design"
+              disabled={claudeZipImporting}
+              title={t('newproj.importClaudeZipTitle')}
+              onClick={() => claudeZipInputRef.current?.click()}
+            >
+              <Icon name="import" size={16} />
+              <span className="plus-menu__trigger-label">
+                {claudeZipImporting ? t('newproj.importingClaudeZip') : t('newproj.importClaudeZip')}
+              </span>
+            </button>
+          </>
+        ) : null}
+        {claudeZipError ? (
+          <span role="alert" className="home-hero__error">
+            {claudeZipError}
+          </span>
+        ) : null}
+        {folderImport.error ? (
+          <span role="alert" className="home-hero__error">
+            {folderImport.error.message}
+          </span>
         ) : null}
         {/* Only the OVERFLOW: with several projects referenced at once the
             trigger can name one, so the rest ride beside it rather than

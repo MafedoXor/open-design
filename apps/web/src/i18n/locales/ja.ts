@@ -642,6 +642,8 @@ export const ja: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'エージェント未選択',
   'settings.language': '言語',
+  'settings.theme': 'テーマ',
+  'settings.themeSystem': 'システム',
   'settings.languageHint': 'インターフェースの言語を切り替えます。このブラウザに保存されます。',
   'settings.agentModelHead': 'モデル：',
   'settings.modelPicker': 'モデル',

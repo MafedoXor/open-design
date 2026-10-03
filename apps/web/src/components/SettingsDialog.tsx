@@ -118,6 +118,7 @@ import type {
   ApiProtocol,
   ApiProtocolConfig,
   AppConfig,
+  AppTheme,
   AppVersionInfo,
   ConnectionTestResponse,
   DesignSystemGenerationJob,
@@ -209,6 +210,7 @@ import {
 import {
   applyAppearanceToDocument,
   resolveAccentColor,
+  resolveAppTheme,
 } from '../state/appearance';
 import { isAutosaveDraftOnlyChange } from '../App';
 import {
@@ -1547,9 +1549,9 @@ export function SettingsDialog({
     ReadonlySet<string>
   >(() => new Set());
   const previousInitialRef = useRef(initial);
-  // Accent only — the theme is a constant now that the app ships light-only.
   const lastSavedAppearanceRef = useRef({
     accentColor: resolveAccentColor(initial.accentColor),
+    theme: resolveAppTheme(initial.theme),
   });
 
   useEffect(() => {
@@ -1565,8 +1567,9 @@ export function SettingsDialog({
   useEffect(() => {
     lastSavedAppearanceRef.current = {
       accentColor: resolveAccentColor(initial.accentColor),
+      theme: resolveAppTheme(initial.theme),
     };
-  }, [initial.accentColor]);
+  }, [initial.accentColor, initial.theme]);
 
   useEffect(() => {
     const previousInitial = previousInitialRef.current;
@@ -3349,6 +3352,7 @@ export function SettingsDialog({
           }
           lastSavedAppearanceRef.current = {
             accentColor: resolveAccentColor(persistedSnapshot.accentColor),
+            theme: resolveAppTheme(persistedSnapshot.theme),
           };
           // If a newer edit landed while the request was in flight,
           // leave the status as 'pending' so the next debounce tick
@@ -3905,10 +3909,10 @@ export function SettingsDialog({
     integrations: { title: t('settings.mcpServerTitle'), subtitle: t('settings.mcpServerHint') },
     mcpClient: { title: t('settings.externalMcpTitle'), subtitle: t('settings.externalMcpHint') },
     language: { title: t('settings.language'), subtitle: t('settings.languageHint') },
-    // The theme setting is gone (the app ships light-only), so `appearance` has
-    // no copy of its own. It survives only as a legacy deep-link token that
-    // `normalizeSettingsSection` folds into General, so this entry can never be
-    // the active header — it exists to keep the Record exhaustive.
+    // `appearance` has no copy of its own. It survives only as a legacy
+    // deep-link token that `normalizeSettingsSection` folds into General, so
+    // this entry can never be the active header — it exists to keep the Record
+    // exhaustive. The theme control lives in General, beside Language.
     appearance: { title: t('settings.general'), subtitle: t('settings.generalHint') },
     critiqueTheater: {
       title: t('critiqueTheater.settingsNav'),
@@ -5945,6 +5949,31 @@ export function SettingsDialog({
           {activeSection === 'general' ? (
             <section className="settings-section settings-general-section">
               <div className="settings-general-block">
+                <div className="settings-general-field">
+                  <span className="settings-general-label">{t('settings.theme')}</span>
+                  <label className="settings-general-select">
+                    <select
+                      value={resolveAppTheme(cfg.theme)}
+                      aria-label={t('settings.theme')}
+                      data-testid="settings-theme-select"
+                      onChange={(event) => {
+                        const next = event.target.value as AppTheme;
+                        setCfg((c) => ({ ...c, theme: next }));
+                        // Live preview; autosave persists it, and closing
+                        // Settings reverts to the last saved appearance.
+                        applyAppearanceToDocument({
+                          accentColor: cfg.accentColor,
+                          theme: next,
+                        });
+                      }}
+                    >
+                      <option value="light">{t('brandDetail.themeLight')}</option>
+                      <option value="dark">{t('brandDetail.themeDark')}</option>
+                      <option value="system">{t('settings.themeSystem')}</option>
+                    </select>
+                    <Icon name="chevron-down" size={14} />
+                  </label>
+                </div>
                 <div className="settings-general-field">
                   <span className="settings-general-label">{t('settings.language')}</span>
                   <label className="settings-general-select">

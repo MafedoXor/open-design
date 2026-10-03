@@ -569,6 +569,8 @@ export interface Dict {
   'settings.anthropicApi': string;
   'settings.noAgentSelected': string;
   'settings.language': string;
+  'settings.theme': string;
+  'settings.themeSystem': string;
   'settings.languageHint': string;
   'settings.agentModelHead': string;
   'settings.modelPicker': string;

@@ -55,8 +55,8 @@ apps/web/src/runtime/chat/     纯函数领域逻辑(无 JSX、无 DOM)
 /* ❌ */ [data-theme="dark"] .row { … }                /* 组件内写主题分支 */
 ```
 
-理由:`--chat-*` 是唯一的主题接缝。产品当前**强制亮色**(`FORCED_APP_THEME`),
-暗色方案到位时只改 chat 根 Module 里那一段映射,23 个组件零改动。
+理由:`--chat-*` 是唯一的主题接缝。产品默认亮色(`DEFAULT_APP_THEME`),暗色为用户可选(设置 → 通用 → 主题)。
+暗色方案只改 chat 根 Module 里那一段映射,23 个组件零改动。
 组件里写死主题分支 = 把接缝散布到全域,等于没有接缝。
 
 新增 `--chat-*` 变量必须在 chat 根 Module 的**亮暗两个作用域都定义**,即使暂时同值。

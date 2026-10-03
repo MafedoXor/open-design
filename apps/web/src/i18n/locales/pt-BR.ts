@@ -642,6 +642,8 @@ export const ptBR: Dict = {
   'settings.anthropicApi': 'API da Anthropic',
   'settings.noAgentSelected': 'nenhum agente selecionado',
   'settings.language': 'Idioma',
+  'settings.theme': 'Tema',
+  'settings.themeSystem': 'Sistema',
   'settings.languageHint': 'Altere o idioma da interface. Salvo neste navegador.',
   'settings.agentModelHead': 'Modelo para:',
   'settings.modelPicker': 'Modelo',

@@ -24,9 +24,15 @@ import {
 } from '../skills.js';
 import { workspaceTeamSkillBindingResourceId } from '../skills/workspace-team-binding.js';
 import { parseFrontmatter } from '../design-systems/frontmatter.js';
+import { detectDesignSystemInFolder } from '../design-systems/detect-in-folder.js';
+import {
+  looksLikeNativeDesignSystem,
+  overlayNativeDesignSystem,
+} from '../design-systems/native-overlay.js';
 import {
   deleteWorkspaceResourceByResourceId,
   ensureWorkspaceResource,
+  getProject,
   getWorkspaceResource,
   getWorkspaceResourceByResourceId,
 } from '../db.js';
@@ -1331,6 +1337,59 @@ export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticRe
         );
       }
       res.status(201).json(await importedDesignSystemResponse(designSystem));
+    } catch (err: any) {
+      if (sendWorkspaceScopeError(res, err)) return;
+      if (err instanceof LocalDesignSystemImportError) {
+        return sendApiError(res, err.code === 'BAD_REQUEST' ? 400 : 500, err.code, err.message);
+      }
+      sendApiError(res, 500, 'INTERNAL_ERROR', String(err));
+    }
+  });
+
+  // Looks inside an opened-folder project for a design system (DESIGN.md, a
+  // design-system folder, or a token stylesheet) and imports it as a user
+  // design system. Applying it to the project stays with the caller's PATCH so
+  // the project's own validation and workspace authority run unchanged.
+  app.post('/api/projects/:id/design-system/detect-local', async (req, res) => {
+    if (!requireLocalOrigin(req, res)) return;
+    try {
+      const workspaceContext = await resolveWorkspaceAuthority(req, res);
+      if (workspaceContext === undefined) return;
+      const project = getProject(db, req.params.id);
+      const baseDir = (project?.metadata as { baseDir?: unknown } | undefined)?.baseDir;
+      if (!project || typeof baseDir !== 'string' || !path.isAbsolute(baseDir)) {
+        return sendApiError(res, 404, 'NOT_FOUND', 'folder project not found');
+      }
+      if (project.designSystemId) return res.json({ detected: false });
+      const source = await detectDesignSystemInFolder(baseDir);
+      if (!source) return res.json({ detected: false });
+
+      const before = await listAllDesignSystems();
+      const result = await importLocalDesignSystemProject(source.root, USER_DESIGN_SYSTEMS_DIR, {
+        name: `${project.name} design system`,
+        reservedIds: reservedDesignSystemDirIds(before),
+      });
+      // A folder that is already a hand-written design system keeps its own
+      // README, tokens and files instead of the generic reverse-engineered
+      // template.
+      if (source.kind !== 'tokens' && (await looksLikeNativeDesignSystem(source.root))) {
+        await overlayNativeDesignSystem(source.root, result.dir, `${project.name} design system`);
+      }
+      await claimImportedDesignSystem(result.id, workspaceContext);
+      const designSystem = findUserDesignSystemInCatalog(await listAllDesignSystems(), result.id);
+      if (!designSystem) {
+        return sendApiError(
+          res,
+          500,
+          'INTERNAL_ERROR',
+          `imported design system was not found in catalog: ${result.dir}`,
+        );
+      }
+      res.status(201).json({
+        detected: true,
+        kind: source.kind,
+        ...(await importedDesignSystemResponse(designSystem)),
+      });
     } catch (err: any) {
       if (sendWorkspaceScopeError(res, err)) return;
       if (err instanceof LocalDesignSystemImportError) {

@@ -642,6 +642,8 @@ export const tr: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'Ajan seçilmedi',
   'settings.language': 'Dil',
+  'settings.theme': 'Tema',
+  'settings.themeSystem': 'Sistem',
   'settings.languageHint': 'Arayüz dilini değiştirin. Bu tarayıcıya kaydedilir.',
   'settings.agentModelHead': 'Model için:',
   'settings.modelPicker': 'Model',

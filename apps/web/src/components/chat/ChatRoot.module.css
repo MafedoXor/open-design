@@ -11,7 +11,7 @@
  * 覆盖值是产品单独指定的色号,与全局 token 无关,所以这里写字面量;
  * 其余一律映射到全局 token,零漂移。
  *
- * 产品当前强制亮色(appearance.ts: FORCED_APP_THEME = 'light')。
+ * 产品默认亮色(appearance.ts: DEFAULT_APP_THEME = 'light'),暗色为用户可选。
  * 暗色作用域里设计稿没给值的,按「同值」处理,不自行发明。
  */
 
@@ -263,8 +263,10 @@
   --chat-bg-fill-secondary: var(--bg-fill-secondary);
   --chat-bg-fill-tertiary: var(--bg-fill-tertiary);
   --chat-confirm-surface: var(--brand-soft);
-  --chat-floating-card-bg: #fff;
-  --chat-floating-card-text: #202020;
+  /* Opaque dark card: a white card here left the composer's light `--text`
+     ink unreadable. */
+  --chat-floating-card-bg: var(--bg-elevated);
+  --chat-floating-card-text: var(--text);
 
   --chat-border: var(--border);
   --chat-border-strong: var(--border-strong);

@@ -7,6 +7,8 @@
 // surface by lifting its plugin orchestration up here so the prompt
 // textarea can live centered in the hero.
 
+import type { ImportClaudeDesignOutcome } from './NewProjectPanel';
+import type { OpenDesignHostProjectImportSuccess } from '@open-design/host';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dialog, DialogFooter, DialogTitle } from '@open-design/components';
 import type {
@@ -267,6 +269,11 @@ const AUTHORING_DEFAULT_SCENARIO_INPUTS = {
 
 interface Props {
   isActive?: boolean;
+  onImportFolder?: (baseDir: string) => Promise<void> | void;
+  onImportClaudeDesign?: (
+    file: File,
+  ) => Promise<ImportClaudeDesignOutcome | void> | ImportClaudeDesignOutcome | void;
+  onImportFolderResponse?: (response: OpenDesignHostProjectImportSuccess) => Promise<void> | void;
   projects: Project[];
   projectsLoading?: boolean;
   designSystems?: DesignSystemSummary[];
@@ -494,6 +501,9 @@ export function seedHomeComposerPrompt(
 }
 
 export function HomeView({
+  onImportFolder,
+  onImportFolderResponse,
+  onImportClaudeDesign,
   isActive = true,
   projects,
   projectsLoading,
@@ -3217,6 +3227,9 @@ export function HomeView({
         workingDir={workingDir}
         recentDirs={recentDirs}
         onPickWorkingDir={handlePickWorkingDir}
+        {...(onImportFolder ? { onImportFolder } : {})}
+        {...(onImportClaudeDesign ? { onImportClaudeDesign } : {})}
+        {...(onImportFolderResponse ? { onImportFolderResponse } : {})}
         onPickLocalCodeDir={handlePickLocalCodeDir}
         onSelectRecentWorkingDir={(dir) => {
           setWorkingDir(dir);

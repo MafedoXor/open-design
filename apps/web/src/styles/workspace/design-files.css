@@ -1194,7 +1194,7 @@
   min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--bg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition: border-color 120ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 120ms cubic-bezier(0.23, 1, 0.32, 1);

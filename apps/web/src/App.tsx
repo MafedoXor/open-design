@@ -223,6 +223,7 @@ import {
   duplicateProject,
   getProject,
   importClaudeDesignZip,
+  applyDetectedFolderDesignSystem,
   importFolderProject,
   invalidatePluginCatalogCache,
   invalidateWorkspaceProjectLists,
@@ -1898,13 +1899,24 @@ function AppInner() {
   ]);
 
   // Stamp the app appearance onto the <html> element so CSS variables pick it
-  // up. The theme itself is a constant (light-only), but the accent still comes
-  // from config, and the stamp must be re-applied whenever that changes.
+  // up. Theme and accent both come from config, and the stamp must be
+  // re-applied whenever either changes.
   // useLayoutEffect (vs useEffect) fires before the browser paints, so no
   // 1-frame flash. Safe here because the component tree is ssr:false.
   useLayoutEffect(() => {
-    applyAppearanceToDocument({ accentColor: config.accentColor });
-  }, [config.accentColor]);
+    applyAppearanceToDocument({ accentColor: config.accentColor, theme: config.theme });
+  }, [config.accentColor, config.theme]);
+
+  // "System" tracks the OS live: re-stamp when the OS flips between light and
+  // dark while the app is open.
+  useEffect(() => {
+    if (config.theme !== 'system' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    const restamp = () =>
+      applyAppearanceToDocument({ accentColor: config.accentColor, theme: 'system' });
+    query.addEventListener('change', restamp);
+    return () => query.removeEventListener('change', restamp);
+  }, [config.theme, config.accentColor]);
 
   // Tell the daemon what the user is currently looking at, so the MCP
   // server can surface it as `get_active_context` to a coding agent in
@@ -3731,7 +3743,12 @@ function AppInner() {
       resolvedWorkspaceContextForWrite(workspaceContextStateRef.current),
     );
     rememberLocalProject(result.project.id);
-    setProjects((curr) => [result.project, ...curr.filter((p) => p.id !== result.project.id)]);
+    const withDesignSystem = await applyDetectedFolderDesignSystem(
+      result.project.id,
+      resolvedWorkspaceContextForWrite(workspaceContextStateRef.current),
+    );
+    const importedProject = withDesignSystem ?? result.project;
+    setProjects((curr) => [importedProject, ...curr.filter((p) => p.id !== importedProject.id)]);
     navigate({
       kind: 'project',
       projectId: result.project.id,
@@ -3746,7 +3763,11 @@ function AppInner() {
   const handleImportFolderResponse = useCallback(async (result: OpenDesignHostProjectImportSuccess) => {
     rememberLocalProject(result.projectId);
     const importedProjectContext = workspaceContextRef.current;
-    const project = await getProject(result.projectId, importedProjectContext);
+    const withDesignSystem = await applyDetectedFolderDesignSystem(
+      result.projectId,
+      importedProjectContext,
+    );
+    const project = withDesignSystem ?? await getProject(result.projectId, importedProjectContext);
     if (project != null) {
       setProjects((curr) => [project, ...curr.filter((p) => p.id !== project.id)]);
     } else {

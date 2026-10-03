@@ -238,6 +238,15 @@
   --border: #5c5c5c;
   --border-strong: #848484;
   --border-selected: #a3a3a3;
+  --select-ink: #fafafa;
+  --selected: #e5e5e5;
+  --selected-soft: color-mix(in srgb, #fafafa 14%, transparent);
+  --tag-prototype-ink: #8fb0ff;
+  --tag-prototype-tint: rgba(143, 176, 255, 0.16);
+  --tag-live-artifact-ink: #b3a1ff;
+  --tag-web-clone-ink: #5cc7ea;
+  --tag-slide-ink: #ffb454;
+  --tag-media-ink: #5fd6bd;
   --border-soft: #494949;
 
   --text: #ededed;
@@ -301,6 +310,15 @@
     --border: #5c5c5c;
     --border-strong: #848484;
     --border-selected: #a3a3a3;
+    --select-ink: #fafafa;
+    --selected: #e5e5e5;
+    --selected-soft: color-mix(in srgb, #fafafa 14%, transparent);
+    --tag-prototype-ink: #8fb0ff;
+    --tag-prototype-tint: rgba(143, 176, 255, 0.16);
+    --tag-live-artifact-ink: #b3a1ff;
+    --tag-web-clone-ink: #5cc7ea;
+    --tag-slide-ink: #ffb454;
+    --tag-media-ink: #5fd6bd;
     --border-soft: #494949;
 
     --text: #ededed;

@@ -642,6 +642,8 @@ export const th: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'ไม่ได้เลือกเอเจนต์',
   'settings.language': 'ภาษา',
+  'settings.theme': 'ธีม',
+  'settings.themeSystem': 'ระบบ',
   'settings.languageHint': 'เปลี่ยนภาษาอินเทอร์เฟซ บันทึกไว้ในเบราว์เซอร์นี้',
   'settings.agentModelHead': 'โมเดลสำหรับ:',
   'settings.modelPicker': 'โมเดล',

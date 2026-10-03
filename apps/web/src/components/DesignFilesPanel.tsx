@@ -237,6 +237,22 @@ function acquireHtmlThumbnailFetchSlot(
   return abandon;
 }
 
+// A design system opened with the project (or imported next to it) lives in a
+// folder with one of these names. Its files are reference material, so they
+// get their own tab instead of flooding Pages, Stylesheets and the rest.
+const DESIGN_SYSTEM_DIR_NAMES = new Set([
+  'design-system',
+  'design-systems',
+  'designsystem',
+  'design_system',
+]);
+
+function isDesignSystemPath(path: string): boolean {
+  const segments = path.split('/');
+  segments.pop(); // the file name itself never counts as a folder
+  return segments.some((segment) => DESIGN_SYSTEM_DIR_NAMES.has(segment.toLowerCase()));
+}
+
 function fileCategory(file: ProjectFile): FileCategory {
   const dot = file.name.lastIndexOf('.');
   const ext = dot >= 0 ? file.name.slice(dot + 1).toLowerCase() : '';
@@ -562,10 +578,14 @@ export function DesignFilesPanel({
   // Derive immediate subdirectories and files at the current directory level
   // from the flat files list. Files with names like "a/b/c.html" contribute
   // "a" as a directory when currentDir is '' and "b" when currentDir is "a".
-  const { dirsAtCurrentDir, filesAtCurrentDir } = useMemo(() => {
+  const { dirsAtCurrentDir, filesAtCurrentDir, designSystemFiles } = useMemo(() => {
     const prefix = currentDir === '' ? '' : `${currentDir}/`;
     const dirs = new Set<string>();
     const localFiles: ProjectFile[] = [];
+    const dsFiles: ProjectFile[] = [];
+    // Inside the design-system folder itself its files are the ordinary
+    // content of the view, so the split only applies outside it.
+    const insideDesignSystem = isDesignSystemPath(`${currentDir}/x`);
     for (const f of files) {
       if (!f.name.startsWith(prefix)) continue;
       const remainder = f.name.slice(prefix.length);
@@ -574,7 +594,10 @@ export function DesignFilesPanel({
         localFiles.push(f);
       } else {
         dirs.add(remainder.slice(0, slashIdx));
-        if (currentDir === '') localFiles.push(f);
+        if (currentDir === '') {
+          if (!insideDesignSystem && isDesignSystemPath(f.name)) dsFiles.push(f);
+          else localFiles.push(f);
+        }
       }
     }
     // Also surface persisted folders (including empty ones with no files under
@@ -589,6 +612,7 @@ export function DesignFilesPanel({
     return {
       dirsAtCurrentDir: [...dirs].sort((a, b) => a.localeCompare(b)),
       filesAtCurrentDir: localFiles,
+      designSystemFiles: dsFiles.sort((a, b) => a.name.localeCompare(b.name)),
     };
   }, [files, folders, currentDir]);
 
@@ -676,8 +700,15 @@ export function DesignFilesPanel({
         count: sectionFiles.length,
       });
     }
+    if (designSystemFiles.length > 0) {
+      tabs.push({
+        id: 'design-system',
+        label: t('misc.designSystem'),
+        count: designSystemFiles.length,
+      });
+    }
     return tabs;
-  }, [liveArtifacts, pluginFolders, dirsAtCurrentDir, sections, t]);
+  }, [liveArtifacts, pluginFolders, dirsAtCurrentDir, sections, designSystemFiles, t]);
   // Pages are the primary artifact — land on them by default. Derived (not
   // synced through an effect) so a picked tab that empties out (last file
   // deleted, directory change) falls back instantly without a stale frame.
@@ -1843,6 +1874,11 @@ export function DesignFilesPanel({
               {resolvedTab === 'folders' ? (
                 <div className="df-section" key="folders">
                   {dirsAtCurrentDir.map((d) => renderDirRow(d))}
+                </div>
+              ) : null}
+              {resolvedTab === 'design-system' ? (
+                <div className="df-section" key="design-system" data-testid="design-files-design-system">
+                  {designSystemFiles.map((f) => renderFileRow(f, fileCategory(f)))}
                 </div>
               ) : null}
               {sections.map(([category, sectionFiles]) =>

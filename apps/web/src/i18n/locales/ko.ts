@@ -642,6 +642,8 @@ export const ko: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': '선택된 에이전트 없음',
   'settings.language': '언어',
+  'settings.theme': '테마',
+  'settings.themeSystem': '시스템',
   'settings.languageHint': '인터페이스 언어를 변경합니다. 이 브라우저에 저장됩니다.',
   'settings.agentModelHead': '모델:',
   'settings.modelPicker': '모델',

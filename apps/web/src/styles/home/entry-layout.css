@@ -488,6 +488,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The neon-green label is designed for a dark pill. `--accent` is light in the
+   dark theme, so pin the pill to a dark surface there. */
+[data-theme='dark'] .entry-local-mode-tip__login-badge {
+  background: var(--bg-subtle);
+}
 .entry-local-mode-tip p {
   margin: 0;
 }
@@ -1785,7 +1790,7 @@
      pseudo scrolls away with the content, and `::before` is already taken by
      the top scroll-fade band above. */
   margin: 0 12px 12px 0;
-  --entry-content-surface: rgba(255, 255, 255, 0.85);
+  --entry-content-surface: color-mix(in srgb, var(--bg) 85%, transparent);
   --entry-content-ring: var(--glass-refract-ring-edge);
   background: var(--entry-content-surface);
   -webkit-backdrop-filter: var(--material-thin-backdrop);
@@ -7566,8 +7571,8 @@ button.entry-nav-rail__menu-credits-row:active:not(:disabled) {
 }
 
 [data-testid="design-systems-tab"] > aside div:has(> [data-testid^="design-system-card-"][aria-pressed="true"]) {
-  border-color: #dbdbdb;
-  background: #ffffff;
+  border-color: var(--border);
+  background: var(--bg);
 }
 
 [data-testid="design-systems-tab"] > aside div:has(> [data-testid^="design-system-card-"]):hover > [data-testid^="design-system-card-"],

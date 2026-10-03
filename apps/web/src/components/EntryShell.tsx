@@ -1768,6 +1768,9 @@ export function EntryShell({
       openNewProject(tab);
     },
     onStartBlankProject: startBlankProjectFromRail,
+    ...(onImportFolder ? { onImportFolder } : {}),
+    onImportClaudeDesign,
+    ...(onImportFolderResponse ? { onImportFolderResponse } : {}),
     projectOwnerMemberIds: teamProjectOwnerMemberIds,
     skills,
     skillsLoading,

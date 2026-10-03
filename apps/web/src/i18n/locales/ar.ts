@@ -642,6 +642,8 @@ export const ar: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'لم يتم اختيار وكيل',
   'settings.language': 'اللغة',
+  'settings.theme': 'المظهر',
+  'settings.themeSystem': 'النظام',
   'settings.languageHint': 'تغيير لغة الواجهة. تحفظ في المتصفح.',
   'settings.agentModelHead': 'النموذج لـ:',
   'settings.modelPicker': 'النموذج',

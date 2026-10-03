@@ -642,6 +642,8 @@ export const fa: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'هیچ عاملی انتخاب نشده',
   'settings.language': 'زبان',
+  'settings.theme': 'تم',
+  'settings.themeSystem': 'سیستم',
   'settings.languageHint': 'زبان رابط را تغییر دهید. در این مرورگر ذخیره می‌شود.',
   'settings.agentModelHead': 'مدل برای:',
   'settings.modelPicker': 'مدل',

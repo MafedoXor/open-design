@@ -1225,4 +1225,22 @@ describe("building preview", () => {
 
     expect(screen.queryByTestId("design-files-preview-toggle")).toBeNull();
   });
+  // A design system opened with the project is reference material: its pages
+  // and stylesheets must not crowd the project's own tabs.
+  it("keeps design-system files out of Pages and lists them under their own tab", () => {
+    renderPanel([
+      file({ name: "Popup.dc.html", kind: "html" }),
+      file({ name: "design-system/guidelines/colors.card.html", kind: "html" }),
+      file({ name: "design-system/tokens/colors.css", kind: "code" }),
+    ]);
+
+    expect(screen.getByTestId("design-files-tab-cat:html").textContent).toContain("1");
+    expect(screen.queryByTestId("design-files-tab-cat:stylesheet")).toBeNull();
+    expect(screen.queryByTestId("design-file-row-design-system/tokens/colors.css")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("design-files-tab-design-system"));
+    expect(screen.getByTestId("design-files-tab-design-system").textContent).toContain("2");
+    expect(screen.getByTestId("design-file-row-design-system/tokens/colors.css")).toBeTruthy();
+    expect(screen.queryByTestId("design-file-row-Popup.dc.html")).toBeNull();
+  });
 });

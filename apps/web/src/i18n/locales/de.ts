@@ -642,6 +642,8 @@ export const de: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'kein Agent ausgewählt',
   'settings.language': 'Sprache',
+  'settings.theme': 'Erscheinungsbild',
+  'settings.themeSystem': 'System',
   'settings.languageHint': 'Wechseln Sie die Sprache der Oberfläche. Wird in diesem Browser gespeichert.',
   'settings.agentModelHead': 'Modell für:',
   'settings.modelPicker': 'Modell',

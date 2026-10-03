@@ -642,6 +642,8 @@ export const hu: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'nincs kiválasztott ügynök',
   'settings.language': 'Nyelv',
+  'settings.theme': 'Téma',
+  'settings.themeSystem': 'Rendszer',
   'settings.languageHint': 'A felület nyelvének váltása. Ebben a böngészőben mentve.',
   'settings.agentModelHead': 'Modell ehhez:',
   'settings.modelPicker': 'Modell',

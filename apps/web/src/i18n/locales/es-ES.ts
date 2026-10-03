@@ -642,6 +642,8 @@ export const esES: Dict = {
   'settings.anthropicApi': 'API de Anthropic',
   'settings.noAgentSelected': 'ningún agente seleccionado',
   'settings.language': 'Idioma',
+  'settings.theme': 'Tema',
+  'settings.themeSystem': 'Sistema',
   'settings.languageHint': 'Cambia el idioma de la interfaz. Se guarda en este navegador.',
   'settings.agentModelHead': 'Modelo para:',
   'settings.modelPicker': 'Modelo',

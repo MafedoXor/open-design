@@ -642,6 +642,8 @@ export const uk: Dict = {
   'settings.anthropicApi': 'Anthropic API',
   'settings.noAgentSelected': 'агент не вибран',
   'settings.language': 'Мова',
+  'settings.theme': 'Тема',
+  'settings.themeSystem': 'Системна',
   'settings.languageHint': 'Перемкніть мову інтерфейсу. Зберігається в цьому браузері.',
   'settings.agentModelHead': 'Модель для:',
   'settings.modelPicker': 'Модель',

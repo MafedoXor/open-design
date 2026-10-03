@@ -1090,6 +1090,44 @@ type ProjectPatch = Omit<Partial<Project>, 'pendingPrompt' | 'customInstructions
   customInstructions?: string | null;
 };
 
+/**
+ * Asks the daemon to look inside an opened-folder project for a design system
+ * (DESIGN.md, a design-system folder, or a token stylesheet), import it, and
+ * then applies it to the project. Best effort: any failure leaves the project
+ * exactly as imported.
+ */
+export async function applyDetectedFolderDesignSystem(
+  projectId: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): Promise<Project | null> {
+  try {
+    const resp = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/design-system/detect-local`,
+      {
+        method: 'POST',
+        headers: workspaceContext ? workspaceProjectHeaders(workspaceContext) : {},
+      },
+    );
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as { detected?: boolean; designSystem?: { id: string } };
+    if (!json.detected || !json.designSystem?.id) return null;
+    // Imports land as drafts, and the daemon refuses to attach a draft to a
+    // project, so publish it first.
+    const published = await fetch(`/api/design-systems/${encodeURIComponent(json.designSystem.id)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(workspaceContext ? workspaceProjectHeaders(workspaceContext) : {}),
+      },
+      body: JSON.stringify({ status: 'published' }),
+    });
+    if (!published.ok) return null;
+    return await patchProject(projectId, { designSystemId: json.designSystem.id }, workspaceContext);
+  } catch {
+    return null;
+  }
+}
+
 export async function patchProject(
   id: string,
   patch: ProjectPatch,
