@@ -33,6 +33,7 @@ RUN corepack enable && \
     pnpm install --frozen-lockfile
 
 COPY apps ./apps
+ENV NODE_OPTIONS=--max-old-space-size=5120
 RUN pnpm --filter @open-design/daemon build && \
     pnpm --filter @open-design/web build && \
     pnpm --filter @open-design/daemon deploy --legacy --prod /app/deploy/daemon && \
