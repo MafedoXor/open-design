@@ -1530,6 +1530,7 @@ export function createChatRunService({
     assistantMessageId: run.assistantMessageId,
     clientRequestId: run.clientRequestId ?? null,
     agentId: run.agentId,
+    workerPerson: run.workerPerson ?? null,
     designSystemId: run.designSystemId ?? null,
     designSystemRequestedId: run.designSystemRequestedId ?? null,
     designSystemSelectionSource: run.designSystemSelectionSource ?? null,

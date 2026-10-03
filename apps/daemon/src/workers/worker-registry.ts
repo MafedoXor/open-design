@@ -36,6 +36,12 @@ export interface WorkerRegistry {
   /** Closes sessions that have gone quiet past the bound. */
   sweep(): void;
   closeAll(): void;
+  /**
+   * Called when `person`'s worker is gone for good: its connection closed or
+   * went quiet and no newer session took its place. A reconnect that replaces
+   * the old session does not call it.
+   */
+  onWorkerGone(listener: (person: string) => void): void;
 }
 
 interface Session {
@@ -76,12 +82,24 @@ export function createWorkerRegistry({
     return undefined;
   };
 
-  const drop = (session: Session) => {
-    if (byPerson.get(session.person) === session) byPerson.delete(session.person);
+  const goneListeners: Array<(person: string) => void> = [];
+
+  const drop = (session: Session, replaced = false) => {
+    const wasCurrent = byPerson.get(session.person) === session;
+    if (wasCurrent) byPerson.delete(session.person);
     try {
       session.channel.close();
     } catch {
       // The connection may already be gone; dropping the session is what matters.
+    }
+    if (wasCurrent && !replaced) {
+      for (const listener of goneListeners) {
+        try {
+          listener(session.person);
+        } catch (error) {
+          console.warn('[workers] worker-gone listener failed', error);
+        }
+      }
     }
   };
 
@@ -98,7 +116,7 @@ export function createWorkerRegistry({
         lastSeenAt: at,
       };
       byPerson.set(person, session);
-      if (previous) drop(previous);
+      if (previous) drop(previous, true);
       return { sessionId: session.sessionId };
     },
     heartbeat(sessionId, person) {
@@ -144,6 +162,9 @@ export function createWorkerRegistry({
       for (const session of [...byPerson.values()]) {
         if (!isFresh(session)) drop(session);
       }
+    },
+    onWorkerGone(listener) {
+      goneListeners.push(listener);
     },
     closeAll() {
       for (const session of [...byPerson.values()]) drop(session);

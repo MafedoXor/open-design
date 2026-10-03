@@ -51,6 +51,9 @@ export function workerAgentSessionCwd(person: string, projectDir: string): strin
 /** Exit code reported when the worker could not start the agent at all. */
 const WORKER_SPAWN_FAILED_EXIT_CODE = 127;
 
+const WORKER_DISCONNECTED_MESSAGE = (person: string) =>
+  `${person}'s worker disconnected before the run finished. Changes the agent had not yet sent back were not saved.`;
+
 export class WorkerOfflineError extends Error {
   readonly code = 'WORKER_OFFLINE';
   constructor(readonly person: string) {
@@ -164,6 +167,16 @@ class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
 
 export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegistry }): RemoteRunDispatcher {
   const live = new Map<string, { person: string; process: RemoteProcess; projectDir: string | null }>();
+
+  // A worker that is gone cannot report its runs' exit, so the server ends
+  // them: the run fails and whatever it held, the project included, is released.
+  registry.onWorkerGone((person) => {
+    for (const [runId, entry] of [...live]) {
+      if (entry.person !== person) continue;
+      live.delete(runId);
+      entry.process.end({ code: null, signal: null, error: WORKER_DISCONNECTED_MESSAGE(person) });
+    }
+  });
 
   const owned = (person: string, runId: string) => {
     const entry = live.get(runId);

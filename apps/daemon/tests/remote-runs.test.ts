@@ -169,3 +169,30 @@ describe('what a worker run takes from the server', () => {
     expect(workerAgentSessionCwd('Bob', '/data/projects/p1')).not.toBe(workerAgentSessionCwd('Alice', '/data/projects/p1'));
   });
 });
+
+describe('a worker that goes away', () => {
+  it('ends its live runs as failed so the project is released', async () => {
+    const { registry, dispatcher } = setup();
+    const child = dispatcher.spawn('Bob', { runId: 'r1', agentId: 'claude', args: [], stdin: 'ignore' });
+    const { out, closed } = collect(child);
+    registry.disconnectPerson('Bob');
+    const result = await closed;
+    expect(result.code).not.toBe(0);
+    expect(out.stderr).toMatch(/disconnected/i);
+    expect(dispatcher.projectDir('Bob', 'r1')).toBeNull();
+  });
+
+  it('keeps a run alive when the same person reconnects over the old session', async () => {
+    const { registry, dispatcher } = setup();
+    const child = dispatcher.spawn('Bob', { runId: 'r1', agentId: 'claude', args: [], stdin: 'ignore' });
+    registry.connect('Bob', hello, recordingChannel().channel);
+    expect(child.exitCode).toBeNull();
+  });
+
+  it('leaves other people\'s runs alone', () => {
+    const { registry, dispatcher } = setup();
+    const child = dispatcher.spawn('Alice', { runId: 'r1', agentId: 'claude', args: [], stdin: 'ignore' });
+    registry.disconnectPerson('Bob');
+    expect(child.exitCode).toBeNull();
+  });
+});

@@ -77,6 +77,9 @@ export const API_ERROR_CODES = [
   // The run was sent to a person's remote worker (`runOn`) and that worker is
   // not connected. The run fails instead of falling back to the server.
   'WORKER_OFFLINE',
+  // A run was refused because another run is active in the project and one of
+  // the two is on a person's worker. `details` names the holding run.
+  'PROJECT_BUSY',
   'PROJECT_NOT_FOUND',
   'PROJECT_MATERIALIZATION_PENDING',
   // Handoff (`POST /api/projects/:id/handoff`): the requested conversation

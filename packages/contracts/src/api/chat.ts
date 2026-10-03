@@ -727,6 +727,8 @@ export interface ChatRunStatusResponse {
   designSystemId?: string | null;
   /** Selected design system before usability/body checks; useful for diagnostics. */
   designSystemRequestedId?: string | null;
+  /** The person whose worker runs the agent; null for a run on the server. */
+  workerPerson?: string | null;
   /** Source that supplied the effective design-system selection. */
   designSystemSelectionSource?: 'request' | 'plugin' | 'project' | 'app-default' | 'none' | null;
   /** sha256 digest of the injected DESIGN.md/tokens/component context. */

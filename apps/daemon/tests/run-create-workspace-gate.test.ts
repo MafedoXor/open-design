@@ -314,12 +314,17 @@ function createRunsServiceStub() {
       return { kind: 'created' as const, run: service.create(meta) };
     },
     get: (id: string) => runs.get(id) ?? null,
-    list: (filters: { projectId?: unknown } = {}) =>
+    list: (filters: { projectId?: unknown; status?: unknown } = {}) =>
       Array.from(runs.values()).filter(
         (run) =>
-          typeof filters.projectId !== 'string'
-          || run.projectId === filters.projectId,
+          (typeof filters.projectId !== 'string'
+            || run.projectId === filters.projectId)
+          && (filters.status !== 'active'
+            || !['succeeded', 'failed', 'canceled'].includes(run.status)),
       ),
+    drop: (run: any) => {
+      runs.delete(run.id);
+    },
     statusBody: (run: any) => ({ ...run }),
     persistState: () => {},
     stream: (run: any, req: any, res: any) => {
@@ -1473,6 +1478,52 @@ describe('POST /api/runs — workspace mutation gate', () => {
       });
     },
   );
+
+  describe('one run per project when a worker is involved', () => {
+    const post = (baseUrl: string, body: Record<string, unknown>, route = '/api/runs') =>
+      fetch(`${baseUrl}${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: UNBOUND_PROJECT, agentId: 'claude', message: 'hi', ...body }),
+      });
+
+    it.each(['/api/runs', '/api/chat'])('refuses a worker run through %s while another run is active, naming the project as busy', async (route) => {
+      const baseUrl = await startServer();
+      runsServiceStub!.seed({ id: 'held', projectId: UNBOUND_PROJECT, status: 'running' });
+      const response = await post(baseUrl, { runOn: { kind: 'worker', person: 'Bob' } }, route);
+      expect(response.status).toBe(409);
+      const { error } = (await response.json()) as { error: { code: string; message: string; details?: { runId?: string } } };
+      expect(error.code).toBe('PROJECT_BUSY');
+      expect(error.message).toMatch(/busy/i);
+      expect(error.details?.runId).toBe('held');
+    });
+
+    it('refuses a server run while a worker run holds the project', async () => {
+      const baseUrl = await startServer();
+      runsServiceStub!.seed({ id: 'held', projectId: UNBOUND_PROJECT, status: 'running', workerPerson: 'Alice' });
+      const response = await post(baseUrl, {});
+      expect(response.status).toBe(409);
+      const { error } = (await response.json()) as { error: { code: string; message: string } };
+      expect(error.code).toBe('PROJECT_BUSY');
+      expect(error.message).toMatch(/Alice/);
+    });
+
+    it('lets a run start once the holder has ended, and holds the project from then on', async () => {
+      const baseUrl = await startServer();
+      runsServiceStub!.seed({ id: 'done', projectId: UNBOUND_PROJECT, status: 'failed', workerPerson: 'Alice' });
+      const first = await post(baseUrl, { runOn: { kind: 'worker', person: 'Bob' } });
+      expect(first.status).toBe(202);
+      const second = await post(baseUrl, { runOn: { kind: 'worker', person: 'Alice' } });
+      expect(second.status).toBe(409);
+    });
+
+    it('does not restrict runs on the server and does not lock other projects', async () => {
+      const baseUrl = await startServer();
+      runsServiceStub!.seed({ id: 'held', projectId: UNBOUND_PROJECT, status: 'running' });
+      expect((await post(baseUrl, {})).status).toBe(202);
+      expect((await post(baseUrl, { projectId: PERSONAL_PROJECT, runOn: { kind: 'worker', person: 'Bob' } })).status).toBe(202);
+    });
+  });
 
   it('still allows a headerless run creation against a never-claimed (legacy) project', async () => {
     const baseUrl = await startServer();

@@ -215,6 +215,7 @@ import {
   normalizeCommentAttachments,
   UPLOAD_DIR,
 } from '../runtimes/chat-prompt-inputs.js';
+import { findProjectRunLock, ProjectBusyError } from '../workers/project-run-lock.js';
 import { createRunAnalyticsLifecycle } from '../services/run-analytics-lifecycle.js';
 import {
   runTouchedArtifactPaths,
@@ -1681,6 +1682,42 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     }
   }
 
+  /**
+   * Enforces the project run lock (`workers/project-run-lock.ts`) on a freshly
+   * created run: drops it and answers 409 `PROJECT_BUSY` when it may not
+   * start, otherwise records which worker it runs on. True means "refused".
+   */
+  const refuseWhenProjectBusy = (
+    res: ApiResponse,
+    run: ChatRun,
+    projectId: unknown,
+    runOn: unknown,
+  ): boolean => {
+    const workerTarget = normalizeRunTarget(runOn);
+    if (typeof projectId === 'string' && projectId) {
+      const lock = findProjectRunLock({
+        activeRuns: design.runs.list({ projectId, status: 'active' }),
+        newRunWorkerPerson: workerTarget?.person ?? null,
+        excludeRunId: run.id,
+      });
+      if (lock) {
+        design.runs.drop(run);
+        const busy = new ProjectBusyError(lock);
+        sendApiError(res, 409, busy.code, busy.message, {
+          details: {
+            kind: 'project_busy',
+            runId: lock.runId,
+            projectId,
+            workerPerson: lock.workerPerson ?? '',
+          },
+        });
+        return true;
+      }
+    }
+    if (workerTarget) run.workerPerson = workerTarget.person;
+    return false;
+  };
+
   const handleRunCreate = async (req: ApiRequest, res: ApiResponse) => {
     if (ctx.lifecycle.isDaemonShuttingDown()) {
       return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
@@ -3070,6 +3107,11 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         );
       }
     }
+    if (
+      preparedRun.kind === 'ready'
+      && preparedRun.creationKind === 'created'
+      && refuseWhenProjectBusy(res, preparedRun.run, meta.projectId, requestBody.runOn)
+    ) return;
     const run = preparedRun.run;
     const analyticsAttributionMismatch =
       (preparedRun.kind !== 'ready' || preparedRun.creationKind === 'reused')
@@ -4014,6 +4056,11 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
         );
       }
     }
+    if (
+      preparedRun.kind === 'ready'
+      && preparedRun.creationKind === 'created'
+      && refuseWhenProjectBusy(res, preparedRun.run, meta.projectId, requestBody.runOn)
+    ) return;
     const run = preparedRun.run;
     if (preparedRun.kind === 'reused') {
       let strategyTask;

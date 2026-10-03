@@ -164,6 +164,8 @@ export interface ChatRun {
   strategyRolloutDecision?: OdNextRolloutDecision | null;
   agentId: string | null;
   workspaceScope?: RunWorkspaceScope | null;
+  /** The person whose worker runs this run's agent; absent for a run on the server. */
+  workerPerson?: string | null;
   model?: string | null;
   status: ChatRunStatus;
   createdAt: number;

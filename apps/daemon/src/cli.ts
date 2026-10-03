@@ -7823,7 +7823,7 @@ async function runRun(args) {
                                             can take it; the rest refuse with
                                             RUN_STEERING_UNSUPPORTED.
   od run continue <runId> [--follow]        Continue a resumable failed run.
-  od run list   [--project <id>]            List recent runs.
+  od run list   [--project <id>] [--status active]  List recent runs; --status active shows what holds a project.
   od run info   <runId>                     One run's status.
   od run result-package <runId> [--json]    Inspect run outputs and workspace
                                             provenance without applying them.
@@ -7845,9 +7845,10 @@ Common options:
   const workspaceHeaders = workspaceHeadersFromExplicitFlags(flags) ?? {};
   switch (sub) {
     case 'list': {
-      const url = flags.project
-        ? `${base}/api/runs?projectId=${encodeURIComponent(flags.project)}`
-        : `${base}/api/runs`;
+      const query = new URLSearchParams();
+      if (flags.project) query.set('projectId', flags.project);
+      if (flags.status) query.set('status', flags.status);
+      const url = `${base}/api/runs${query.size ? `?${query}` : ''}`;
       const resp = await fetch(url, { headers: workspaceHeaders });
       if (!resp.ok) return structuredHttpFailure(resp);
       const data = await resp.json();
@@ -7855,7 +7856,7 @@ Common options:
       const runs = data?.runs ?? [];
       for (const r of runs) {
         const task = r.strategyTask;
-        console.log(`${r.id}\t${r.status}\tproject=${r.projectId ?? '-'}\tplugin=${r.pluginId ?? '-'}${task ? `\ttask=${task.taskExecutionId}\tactive=${task.activeRunId}\toutcome=${task.outcome}` : ''}`);
+        console.log(`${r.id}\t${r.status}\tproject=${r.projectId ?? '-'}${r.workerPerson ? `\tworker=${r.workerPerson}` : ''}\tplugin=${r.pluginId ?? '-'}${task ? `\ttask=${task.taskExecutionId}\tactive=${task.activeRunId}\toutcome=${task.outcome}` : ''}`);
       }
       return;
     }
@@ -8132,6 +8133,13 @@ Common options:
             code:    'missing-input',
             message: data.error.message,
             data:    data.error.data,
+          });
+        }
+        if (resp.status === 409 && data?.error?.code === 'PROJECT_BUSY') {
+          return exitWithStructuredError({
+            code:    'PROJECT_BUSY',
+            message: data.error.message,
+            data:    data.error.details,
           });
         }
         console.error(`POST /api/runs failed: ${resp.status} ${JSON.stringify(data)}`);
