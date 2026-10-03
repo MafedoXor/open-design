@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { startEvidenceDelivery } from './services/evidence-delivery.js';
 import type {
+  WorkerRunTransferSummary,
   DesktopExportArtifactInput,
   DesktopExportArtifactResult,
   DesktopExportPdfInput,
@@ -907,6 +908,7 @@ import {
   WorkerOfflineError,
   workerAgentSessionCwd,
   workerRunEnv,
+  workerTransferNotice,
 } from './workers/remote-runs.js';
 import { createWorkerTokenStore } from './workers/worker-tokens.js';
 import {
@@ -14566,6 +14568,16 @@ export async function startServer({
       run.child = child;
       run.childPid = typeof child.pid === 'number' ? child.pid : null;
       run.processGroupId = spawnedAgent.processGroupId;
+      // A worker run's transfer summary arrives after its last output and
+      // before `close`: it goes on the run, and anything the person should
+      // know (conflicts kept for review, files never copied) ends the reply.
+      if (runTarget) {
+        child.once('transfer', (summary: WorkerRunTransferSummary) => {
+          run.workerTransfer = summary;
+          const notice = workerTransferNotice(summary);
+          if (notice) send('agent', { type: 'text_delta', delta: notice });
+        });
+      }
       // Schedule release of the antigravity model lock once agy's
       // --log-file confirms the chosen model was propagated to the
       // backend (the upstream signal that settings.json was read).

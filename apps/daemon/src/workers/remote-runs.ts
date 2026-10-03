@@ -3,12 +3,17 @@ import { PassThrough, Writable } from 'node:stream';
 import {
   WORKER_RUN_ENV_KEYS,
   WORKER_RUN_EVENTS,
+  WORKER_TRANSFER_EXCLUDED_DIRS,
+  WORKER_TRANSFER_MAX_FILE_BYTES,
+  WORKER_TRANSFER_NOT_COPIED_LIMIT,
+  type WorkerRunConflict,
   type WorkerRunExitRequest,
   type WorkerRunKillEvent,
   type WorkerRunOutputChunk,
   type WorkerRunStartEvent,
   type WorkerRunStdinEndEvent,
   type WorkerRunStdinEvent,
+  type WorkerRunTransferSummary,
 } from '@open-design/contracts';
 import type { WorkerRegistry } from './worker-registry.js';
 
@@ -73,6 +78,11 @@ export interface RemoteAgentProcess extends EventEmitter {
   readonly exitCode: number | null;
   readonly signalCode: NodeJS.Signals | null;
   readonly killed: boolean;
+  /**
+   * How the run's project travelled; `null` for a run without a project.
+   * Complete once the process emits `transfer`, just before `close`.
+   */
+  readonly transfer: WorkerRunTransferSummary | null;
   kill(signal?: NodeJS.Signals | number): boolean;
 }
 
@@ -89,6 +99,77 @@ export interface RemoteRunDispatcher {
    * a live run `runId` or the run has no project.
    */
   projectDir(person: string, runId: string): string | null;
+  /** A project path the server left out of live run `runId`'s copy. False when `person` does not own it. */
+  noteNotCopied(person: string, runId: string, projectPath: string): boolean;
+  /** What applying live run `runId`'s changes left for review. False when `person` does not own it. */
+  noteChangesApplied(
+    person: string,
+    runId: string,
+    applied: { conflicts: WorkerRunConflict[]; notSent: string[] },
+  ): boolean;
+}
+
+/**
+ * What a worker run's project transfer has left out or held back so far.
+ * Repeated reports (a retried download or upload) are recorded once.
+ */
+class TransferRecord {
+  private readonly notCopied = new Set<string>();
+  private readonly notSentBack = new Set<string>();
+  private readonly conflicts = new Map<string, WorkerRunConflict>();
+
+  noteNotCopied(projectPath: string): void {
+    this.notCopied.add(projectPath);
+  }
+
+  noteChangesApplied({ conflicts, notSent }: { conflicts: WorkerRunConflict[]; notSent: string[] }): void {
+    for (const conflict of conflicts) this.conflicts.set(conflict.path, conflict);
+    for (const projectPath of notSent) this.notSentBack.add(projectPath);
+  }
+
+  summary(): WorkerRunTransferSummary {
+    const conflicts = [...this.conflicts.values()].sort((a, b) => a.path.localeCompare(b.path));
+    return {
+      excludedDirs: [...WORKER_TRANSFER_EXCLUDED_DIRS],
+      maxFileBytes: WORKER_TRANSFER_MAX_FILE_BYTES,
+      notCopied: [...this.notCopied].sort().slice(0, WORKER_TRANSFER_NOT_COPIED_LIMIT),
+      notCopiedTotal: this.notCopied.size,
+      notSentBack: [...this.notSentBack].sort(),
+      conflicts,
+      needsReview: conflicts.length > 0,
+    };
+  }
+}
+
+/**
+ * The note a finished worker run adds to its reply, or `null` when nothing
+ * was left behind and nothing conflicted.
+ */
+export function workerTransferNotice(summary: WorkerRunTransferSummary | null): string | null {
+  if (!summary) return null;
+  const lines: string[] = [];
+  if (summary.needsReview) {
+    lines.push('**Needs review:** these files changed on the server while the agent was working on them. The server\'s version was kept.');
+    for (const conflict of summary.conflicts) {
+      lines.push(conflict.agentCopy
+        ? `- \`${conflict.path}\`: the agent's version is saved as \`${conflict.agentCopy}\``
+        : `- \`${conflict.path}\`: the agent deleted it; it was not deleted`);
+    }
+  }
+  const megabytes = Math.round(summary.maxFileBytes / (1024 * 1024));
+  if (summary.notCopiedTotal > 0) {
+    if (lines.length) lines.push('');
+    lines.push(`Not copied to the worker (${summary.excludedDirs.join(' and ')} folders, and files over ${megabytes} MB, never are):`);
+    for (const projectPath of summary.notCopied) lines.push(`- \`${projectPath}\``);
+    const more = summary.notCopiedTotal - summary.notCopied.length;
+    if (more > 0) lines.push(`- and ${more} more`);
+  }
+  if (summary.notSentBack.length > 0) {
+    if (lines.length) lines.push('');
+    lines.push(`Not sent back from the worker, because they are over ${megabytes} MB:`);
+    for (const projectPath of summary.notSentBack) lines.push(`- \`${projectPath}\``);
+  }
+  return lines.length ? `\n\n${lines.join('\n')}\n` : null;
 }
 
 class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
@@ -99,14 +180,21 @@ class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   killed = false;
+  readonly transferRecord: TransferRecord | null;
 
   constructor(
     private readonly runId: string,
     private readonly send: (event: string, data: unknown) => boolean,
     pipeStdin: boolean,
+    hasProject: boolean,
   ) {
     super();
     this.stdin = pipeStdin ? this.createStdin() : null;
+    this.transferRecord = hasProject ? new TransferRecord() : null;
+  }
+
+  get transfer(): WorkerRunTransferSummary | null {
+    return this.transferRecord?.summary() ?? null;
   }
 
   private createStdin(): Writable {
@@ -161,7 +249,11 @@ class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
       // Nobody reading must not hold `close` back.
       if (stream.readableFlowing !== true) stream.resume();
     }));
-    void Promise.all(drained).then(() => this.emit('close', this.exitCode, this.signalCode));
+    void Promise.all(drained).then(() => {
+      const transfer = this.transfer;
+      if (transfer) this.emit('transfer', transfer);
+      this.emit('close', this.exitCode, this.signalCode);
+    });
   }
 }
 
@@ -189,6 +281,7 @@ export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegist
         request.runId,
         (event, data) => registry.send(person, event, data),
         request.stdin === 'pipe',
+        Boolean(request.project),
       );
       if (!registry.send(person, WORKER_RUN_EVENTS.start, request)) throw new WorkerOfflineError(person);
       live.set(request.runId, { person, process, projectDir: request.project?.dir ?? null });
@@ -209,6 +302,16 @@ export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegist
     },
     projectDir(person, runId) {
       return owned(person, runId)?.projectDir ?? null;
+    },
+    noteNotCopied(person, runId, projectPath) {
+      const record = owned(person, runId)?.process.transferRecord;
+      record?.noteNotCopied(projectPath);
+      return Boolean(record);
+    },
+    noteChangesApplied(person, runId, applied) {
+      const record = owned(person, runId)?.process.transferRecord;
+      record?.noteChangesApplied(applied);
+      return Boolean(record);
     },
   };
 }

@@ -277,14 +277,19 @@ export function registerWorkerRoutes(app: Express, options: RegisterWorkerRoutes
 
   // The run's project travels to the worker before the agent starts, and the
   // agent's changes come back before the exit report, while the run is live.
+  // What the copy left out and which changes conflicted are recorded on the
+  // run, so its summary can explain both.
   // Both bodies are gzip tars, so the global JSON parser leaves them alone and
   // nothing is read before the worker token has been checked.
   app.get(WORKER_BRIDGE_RUN_PROJECT_ROUTE, (req: Request, res: Response) => {
     const person = options.tokens.verify(bearerToken(req));
     if (!person) return refuseWorkerToken(res);
-    const projectDir = options.runs.projectDir(person, String(req.params.runId));
+    const runId = String(req.params.runId);
+    const projectDir = options.runs.projectDir(person, runId);
     if (!projectDir) return runGone(res);
-    const archive = packProject(projectDir);
+    const archive = packProject(projectDir, {
+      onNotCopied: (projectPath) => options.runs.noteNotCopied(person, runId, projectPath),
+    });
     archive.once('error', (error) => {
       if (!res.headersSent) {
         sendApiError(res, 500, createApiError('INTERNAL_ERROR', `could not pack the project: ${error.message}`));
@@ -299,10 +304,12 @@ export function registerWorkerRoutes(app: Express, options: RegisterWorkerRoutes
   app.post(WORKER_BRIDGE_RUN_PROJECT_ROUTE, async (req: Request, res: Response) => {
     const person = options.tokens.verify(bearerToken(req));
     if (!person) return refuseWorkerToken(res);
-    const projectDir = options.runs.projectDir(person, String(req.params.runId));
+    const runId = String(req.params.runId);
+    const projectDir = options.runs.projectDir(person, runId);
     if (!projectDir) return runGone(res);
     try {
       const applied = await applyProjectChanges(projectDir, req);
+      options.runs.noteChangesApplied(person, runId, applied);
       const body: WorkerRunChangesResponse = { ok: true, ...applied };
       res.status(200).json(body);
     } catch (error) {

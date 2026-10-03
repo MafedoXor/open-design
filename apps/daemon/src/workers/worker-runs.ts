@@ -259,7 +259,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
     let body: Buffer;
     try {
       const changes = await collectProjectChanges(run.cwd, run.snapshot);
-      if (changes.written.length === 0 && changes.deleted.length === 0) return null;
+      if (changes.written.length === 0 && changes.deleted.length === 0 && changes.notSent.length === 0) return null;
       body = await packProjectChanges(run.root, changes);
     } catch (error) {
       return `could not read the agent's changes: ${(error as Error).message}`;

@@ -1,16 +1,18 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { c as tarCreate } from 'tar';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  WORKER_TRANSFER_MAX_FILE_BYTES,
   workerBridgeRunProjectPath,
   type WorkerRunStartEvent,
   type WorkerTokenCreateResponse,
 } from '@open-design/contracts';
 import { runWorker } from '../src/workers/worker-client.js';
 import { createWorkerRunExecutor, type WorkerRunExecutor } from '../src/workers/worker-runs.js';
-import type { RemoteAgentProcess } from '../src/workers/remote-runs.js';
+import { workerTransferNotice, type RemoteAgentProcess } from '../src/workers/remote-runs.js';
 import { startWorkerTestServer, waitForWorkerOnline, type WorkerTestServer } from './helpers/worker-server.js';
 
 /**
@@ -263,6 +265,92 @@ describe('a worker run with project files', () => {
     await out.closed;
   });
 
+  it('keeps files changed on the server during the run and saves the agent\'s version beside them', async () => {
+    await connectWorker('Alice');
+    const child = startRun('run-conflict', {
+      args: ['-e', `
+        const fs = require('fs');
+        fs.writeFileSync('index.html', '<h1>agent</h1>');
+        fs.writeFileSync('new.html', '<h1>agent new</h1>');
+        fs.writeFileSync('keep.txt', 'agent keep');
+        fs.rmSync('old.css');
+        console.log('ready');
+        process.stdin.resume();
+      `],
+      stdin: 'pipe',
+    });
+    const out = collect(child);
+    await new Promise<void>((resolve) => {
+      const check = () => (out.stdout.includes('ready') ? resolve() : setTimeout(check, 20));
+      check();
+    });
+    // Someone edits the project on the server while the agent is still working.
+    writeFileSync(path.join(projectDir, 'index.html'), '<h1>server</h1>');
+    writeFileSync(path.join(projectDir, 'new.html'), '<h1>server new</h1>');
+    writeFileSync(path.join(projectDir, 'old.css'), 'body { color: red }');
+    child.stdin!.end();
+    expect(await out.closed).toBe(0);
+
+    expect(readFileSync(path.join(projectDir, 'index.html'), 'utf8')).toBe('<h1>server</h1>');
+    expect(readFileSync(path.join(projectDir, 'index.worker-conflict.html'), 'utf8')).toBe('<h1>agent</h1>');
+    expect(readFileSync(path.join(projectDir, 'new.html'), 'utf8')).toBe('<h1>server new</h1>');
+    expect(readFileSync(path.join(projectDir, 'new.worker-conflict.html'), 'utf8')).toBe('<h1>agent new</h1>');
+    expect(readFileSync(path.join(projectDir, 'old.css'), 'utf8')).toBe('body { color: red }');
+    // A change nobody else touched is applied as usual.
+    expect(readFileSync(path.join(projectDir, 'keep.txt'), 'utf8')).toBe('agent keep');
+
+    expect(child.transfer?.needsReview).toBe(true);
+    expect(child.transfer?.conflicts).toEqual([
+      { path: 'index.html', agentCopy: 'index.worker-conflict.html' },
+      { path: 'new.html', agentCopy: 'new.worker-conflict.html' },
+      { path: 'old.css', agentCopy: null },
+    ]);
+    const notice = workerTransferNotice(child.transfer);
+    expect(notice).toContain('Needs review');
+    expect(notice).toContain('index.worker-conflict.html');
+  });
+
+  it('never copies node_modules, .git or files over 25 MB to the PC, never writes them back, and says so', async () => {
+    mkdirSync(path.join(projectDir, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(path.join(projectDir, 'node_modules', 'pkg', 'index.js'), 'server');
+    mkdirSync(path.join(projectDir, '.git'), { recursive: true });
+    writeFileSync(path.join(projectDir, '.git', 'HEAD'), 'ref: refs/heads/main');
+    mkdirSync(path.join(projectDir, 'app', 'node_modules'), { recursive: true });
+    writeFileSync(path.join(projectDir, 'app', 'node_modules', 'x.js'), 'server');
+    writeFileSync(path.join(projectDir, 'big.bin'), Buffer.alloc(WORKER_TRANSFER_MAX_FILE_BYTES + 1));
+    await connectWorker('Alice');
+    const child = startRun('run-excluded', {
+      args: ['-e', `
+        const fs = require('fs');
+        const path = require('path');
+        const list = (dir, prefix = '') => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+          entry.isDirectory() ? list(path.join(dir, entry.name), prefix + entry.name + '/') : [prefix + entry.name]);
+        console.log(JSON.stringify(list('.').sort()));
+        fs.mkdirSync('node_modules/pkg', { recursive: true });
+        fs.writeFileSync('node_modules/pkg/index.js', 'pc');
+        fs.mkdirSync('.git', { recursive: true });
+        fs.writeFileSync('.git/HEAD', 'pc');
+        fs.writeFileSync('huge.bin', Buffer.alloc(${WORKER_TRANSFER_MAX_FILE_BYTES} + 1));
+      `],
+    });
+    const out = collect(child);
+    expect(await out.closed).toBe(0);
+    expect(JSON.parse(out.stdout.trim())).toEqual(['.od-skills/poster/SKILL.md', 'index.html', 'keep.txt', 'old.css']);
+    expect(readFileSync(path.join(projectDir, 'node_modules', 'pkg', 'index.js'), 'utf8')).toBe('server');
+    expect(readFileSync(path.join(projectDir, '.git', 'HEAD'), 'utf8')).toBe('ref: refs/heads/main');
+    expect(existsSync(path.join(projectDir, 'big.bin'))).toBe(true);
+    expect(existsSync(path.join(projectDir, 'huge.bin'))).toBe(false);
+    expect([...child.transfer!.notCopied].sort()).toEqual(['.git/', 'app/node_modules/', 'big.bin', 'node_modules/']);
+    expect(child.transfer?.notSentBack).toEqual(['huge.bin']);
+    expect(child.transfer?.needsReview).toBe(false);
+    const notice = workerTransferNotice(child.transfer);
+    expect(notice).toContain('node_modules and .git');
+    expect(notice).toContain('25 MB');
+    expect(notice).toContain('`big.bin`');
+    expect(notice).toContain('Not sent back');
+    expect(notice).toContain('`huge.bin`');
+  });
+
   it('starts a run without a project in an empty directory and sends nothing back', async () => {
     await connectWorker('Alice');
     const out = collect(server.runs.spawn('Alice', {
@@ -317,7 +405,8 @@ describe('the project transfer endpoints', () => {
       mkdirSync(path.join(staging, 'project'));
       writeFileSync(path.join(staging, 'project', 'new.html'), 'x');
       writeFileSync(path.join(staging, 'deleted.json'), JSON.stringify(['../../../outside.txt']));
-      return ['deleted.json', 'project/new.html'];
+      writeFileSync(path.join(staging, 'base.json'), JSON.stringify({ 'new.html': null, '../../../outside.txt': null }));
+      return ['deleted.json', 'base.json', 'project/new.html'];
     });
     const response = await postChanges('run-escape', token, archive);
     expect(response.status).toBe(400);
@@ -335,11 +424,32 @@ describe('the project transfer endpoints', () => {
       mkdirSync(path.join(staging, 'project', 'link'), { recursive: true });
       writeFileSync(path.join(staging, 'project', 'link', 'evil.txt'), 'x');
       writeFileSync(path.join(staging, 'deleted.json'), '[]');
-      return ['deleted.json', 'project/link/evil.txt'];
+      writeFileSync(path.join(staging, 'base.json'), JSON.stringify({ 'link/evil.txt': null }));
+      return ['deleted.json', 'base.json', 'project/link/evil.txt'];
     });
     const response = await postChanges('run-symlink', token, archive);
     expect(response.status).toBe(400);
     expect(existsSync(path.join(outside, 'evil.txt'))).toBe(false);
+    child.kill('SIGKILL');
+  });
+
+  it('saves one copy of a conflicted file when the same changes are uploaded twice', async () => {
+    const { token, child } = await openRun('run-retry');
+    const received = createHash('sha256').update('<h1>before</h1>').digest('hex');
+    writeFileSync(path.join(projectDir, 'index.html'), '<h1>server</h1>');
+    const archive = await changesArchive((staging) => {
+      mkdirSync(path.join(staging, 'project'));
+      writeFileSync(path.join(staging, 'project', 'index.html'), '<h1>agent</h1>');
+      writeFileSync(path.join(staging, 'deleted.json'), '[]');
+      writeFileSync(path.join(staging, 'base.json'), JSON.stringify({ 'index.html': received }));
+      return ['deleted.json', 'base.json', 'project/index.html'];
+    });
+    expect((await postChanges('run-retry', token, archive)).status).toBe(200);
+    expect((await postChanges('run-retry', token, archive)).status).toBe(200);
+    expect(readFileSync(path.join(projectDir, 'index.html'), 'utf8')).toBe('<h1>server</h1>');
+    expect(readFileSync(path.join(projectDir, 'index.worker-conflict.html'), 'utf8')).toBe('<h1>agent</h1>');
+    expect(existsSync(path.join(projectDir, 'index.worker-conflict-2.html'))).toBe(false);
+    expect(child.transfer?.conflicts).toEqual([{ path: 'index.html', agentCopy: 'index.worker-conflict.html' }]);
     child.kill('SIGKILL');
   });
 

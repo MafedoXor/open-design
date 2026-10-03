@@ -13,6 +13,7 @@ import type {
   ChatRunStatusResponse,
   ProjectMetadata as ContractProjectMetadata,
   StrategyTaskProjectionV2,
+  WorkerRunTransferSummary,
 } from '@open-design/contracts';
 import type { AnalyticsContext } from '../analytics.js';
 import type { RunArtifactBaseline } from '../run-artifact-fs.js';
@@ -166,6 +167,8 @@ export interface ChatRun {
   workspaceScope?: RunWorkspaceScope | null;
   /** The person whose worker runs this run's agent; absent for a run on the server. */
   workerPerson?: string | null;
+  /** How a worker run's project travelled; set when its process closes. */
+  workerTransfer?: WorkerRunTransferSummary | null;
   model?: string | null;
   status: ChatRunStatus;
   createdAt: number;

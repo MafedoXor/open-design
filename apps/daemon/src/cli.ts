@@ -7824,7 +7824,8 @@ async function runRun(args) {
                                             RUN_STEERING_UNSUPPORTED.
   od run continue <runId> [--follow]        Continue a resumable failed run.
   od run list   [--project <id>] [--status active]  List recent runs; --status active shows what holds a project.
-  od run info   <runId>                     One run's status.
+  od run info   <runId>                     One run's status; a worker run's workerTransfer
+                                            lists conflicts (needsReview) and files not copied.
   od run result-package <runId> [--json]    Inspect run outputs and workspace
                                             provenance without applying them.
 
@@ -7856,7 +7857,7 @@ Common options:
       const runs = data?.runs ?? [];
       for (const r of runs) {
         const task = r.strategyTask;
-        console.log(`${r.id}\t${r.status}\tproject=${r.projectId ?? '-'}${r.workerPerson ? `\tworker=${r.workerPerson}` : ''}\tplugin=${r.pluginId ?? '-'}${task ? `\ttask=${task.taskExecutionId}\tactive=${task.activeRunId}\toutcome=${task.outcome}` : ''}`);
+        console.log(`${r.id}\t${r.status}\tproject=${r.projectId ?? '-'}${r.workerPerson ? `\tworker=${r.workerPerson}` : ''}${r.workerTransfer?.needsReview ? `\tneeds-review=${r.workerTransfer.conflicts.length}` : ''}\tplugin=${r.pluginId ?? '-'}${task ? `\ttask=${task.taskExecutionId}\tactive=${task.activeRunId}\toutcome=${task.outcome}` : ''}`);
       }
       return;
     }

@@ -9,7 +9,7 @@ import type {
   PreviewVisualMarkKind,
 } from './comments';
 import type { ResearchOptions } from './research';
-import type { RunTarget } from './workers.js';
+import type { RunTarget, WorkerRunTransferSummary } from './workers.js';
 import type { RunContextSelection } from './context.js';
 import type { MediaExecutionPolicy, RunMediaTaskFailure } from './media.js';
 import type { AppliedPluginSnapshot } from '../plugins/apply.js';
@@ -729,6 +729,13 @@ export interface ChatRunStatusResponse {
   designSystemRequestedId?: string | null;
   /** The person whose worker runs the agent; null for a run on the server. */
   workerPerson?: string | null;
+  /**
+   * How a worker run's project travelled, once its changes have come back:
+   * what was not copied to the PC, and which files conflicted. A run with
+   * `needsReview` kept the server's version of those files and saved the
+   * agent's beside them.
+   */
+  workerTransfer?: WorkerRunTransferSummary | null;
   /** Source that supplied the effective design-system selection. */
   designSystemSelectionSource?: 'request' | 'plugin' | 'project' | 'app-default' | 'none' | null;
   /** sha256 digest of the injected DESIGN.md/tokens/component context. */

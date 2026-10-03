@@ -1531,6 +1531,7 @@ export function createChatRunService({
     clientRequestId: run.clientRequestId ?? null,
     agentId: run.agentId,
     workerPerson: run.workerPerson ?? null,
+    workerTransfer: run.workerTransfer ?? null,
     designSystemId: run.designSystemId ?? null,
     designSystemRequestedId: run.designSystemRequestedId ?? null,
     designSystemSelectionSource: run.designSystemSelectionSource ?? null,

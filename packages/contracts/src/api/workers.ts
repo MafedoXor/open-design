@@ -250,10 +250,81 @@ export function workerBridgeRunProjectPath(runId: string): string {
  */
 export const WORKER_CHANGES_FILES_PREFIX = 'project/';
 export const WORKER_CHANGES_DELETED_ENTRY = 'deleted.json';
+/**
+ * The top-level `base.json` of a changes archive: for every path in it (each
+ * written and each deleted one), the sha256 of that file as the worker
+ * received it, or `null` when the worker did not have it. The server applies
+ * a change only when its own file still matches; otherwise it keeps its file
+ * and reports a conflict.
+ */
+export const WORKER_CHANGES_BASE_ENTRY = 'base.json';
+/**
+ * The optional top-level `not-sent.json`: project paths the agent created or
+ * grew past `WORKER_TRANSFER_MAX_FILE_BYTES`, which the worker did not send.
+ */
+export const WORKER_CHANGES_NOT_SENT_ENTRY = 'not-sent.json';
+
+/**
+ * Directories never copied to a worker and never written from one, at any
+ * depth: they are heavy, private, or both.
+ */
+export const WORKER_TRANSFER_EXCLUDED_DIRS = ['node_modules', '.git'] as const;
+
+/** Files larger than this are never copied to a worker and never written from one. */
+export const WORKER_TRANSFER_MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+/** Whether a file or directory named `name` is left out of every worker transfer. */
+export function isWorkerTransferExcludedName(name: string): boolean {
+  return (WORKER_TRANSFER_EXCLUDED_DIRS as readonly string[]).includes(name);
+}
+
+/** Whether project path `projectPath` is, or lies in, an entry a worker transfer excludes. */
+export function isWorkerTransferExcludedPath(projectPath: string): boolean {
+  return projectPath.split('/').some(isWorkerTransferExcludedName);
+}
+
+/**
+ * A file the agent changed on the worker while the same file changed on the
+ * server. The server's file is kept as it is.
+ */
+export interface WorkerRunConflict {
+  /** Project path of the file that changed on both sides. */
+  path: string;
+  /** Where the agent's version was saved, beside it; `null` when the agent had deleted the file. */
+  agentCopy: string | null;
+}
 
 /** Server → worker: what the server applied from a changes archive. */
 export interface WorkerRunChangesResponse {
   ok: true;
   written: number;
   deleted: number;
+  conflicts: WorkerRunConflict[];
+  /** Paths from `not-sent.json`, the files the worker kept back as too large. */
+  notSent: string[];
+}
+
+/** Longest list of not-copied paths a run summary carries. */
+export const WORKER_TRANSFER_NOT_COPIED_LIMIT = 50;
+
+/**
+ * How a worker run's project moved between the server and the PC, so a
+ * missing file and a file that was not updated can both be explained.
+ */
+export interface WorkerRunTransferSummary {
+  /** The exclusion rules every worker transfer follows. */
+  excludedDirs: string[];
+  maxFileBytes: number;
+  /**
+   * Project paths the server did not copy to the PC under those rules: an
+   * excluded directory (with a trailing `/`) or an oversized file. At most
+   * `WORKER_TRANSFER_NOT_COPIED_LIMIT`; `notCopiedTotal` counts them all.
+   */
+  notCopied: string[];
+  notCopiedTotal: number;
+  /** Files the agent created or grew past `maxFileBytes` on the PC; they were not sent back. */
+  notSentBack: string[];
+  conflicts: WorkerRunConflict[];
+  /** True when the agent's changes conflicted and someone should look at the saved copies. */
+  needsReview: boolean;
 }
