@@ -48,6 +48,14 @@ export interface WorkerHelloEvent {
    * reconnects.
    */
   pingIntervalMs: number;
+  /**
+   * The runs the server still has live on this person's worker. A worker
+   * that reconnects stops any run of its own not listed here: the server has
+   * already ended it (cancelled, or failed when the worker went away), so it
+   * is never resumed and its changes are never sent. Absent from a server
+   * that predates it.
+   */
+  liveRunIds?: string[];
 }
 
 export interface WorkerHeartbeatRequest {

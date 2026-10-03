@@ -14572,6 +14572,13 @@ export async function startServer({
       // before `close`: it goes on the run, and anything the person should
       // know (conflicts kept for review, files never copied) ends the reply.
       if (runTarget) {
+        // However the run ends (Stop, a watchdog, a failure), once it is
+        // terminal the worker's copy stops counting: late changes and exit
+        // reports are refused, so nothing lands after the project is released.
+        void design.runs.wait(run).then(
+          () => remoteRuns.release(run.id),
+          () => remoteRuns.release(run.id),
+        );
         child.once('transfer', (summary: WorkerRunTransferSummary) => {
           run.workerTransfer = summary;
           const notice = workerTransferNotice(summary);

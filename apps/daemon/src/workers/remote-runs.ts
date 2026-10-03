@@ -56,6 +56,9 @@ export function workerAgentSessionCwd(person: string, projectDir: string): strin
 /** Exit code reported when the worker could not start the agent at all. */
 const WORKER_SPAWN_FAILED_EXIT_CODE = 127;
 
+/** A run the server ended before its worker reported the exit ends as killed. */
+const RELEASED_RESULT: WorkerRunExitRequest = { code: null, signal: 'SIGKILL' };
+
 const WORKER_DISCONNECTED_MESSAGE = (person: string) =>
   `${person}'s worker disconnected before the run finished. Changes the agent had not yet sent back were not saved.`;
 
@@ -99,6 +102,15 @@ export interface RemoteRunDispatcher {
    * a live run `runId` or the run has no project.
    */
   projectDir(person: string, runId: string): string | null;
+  /** The ids of the runs live on `person`'s worker. */
+  liveRunIds(person: string): string[];
+  /**
+   * The server has ended run `runId` (it reached a terminal state). If the
+   * worker has not reported its exit yet, the run stops being live now: its
+   * process stand-in ends as killed, and the worker's late changes and exit
+   * are refused, so nothing it sends lands after the project was released.
+   */
+  release(runId: string): void;
   /** A project path the server left out of live run `runId`'s copy. False when `person` does not own it. */
   noteNotCopied(person: string, runId: string, projectPath: string): boolean;
   /** What applying live run `runId`'s changes left for review. False when `person` does not own it. */
@@ -302,6 +314,17 @@ export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegist
     },
     projectDir(person, runId) {
       return owned(person, runId)?.projectDir ?? null;
+    },
+    liveRunIds(person) {
+      return [...live].filter(([, entry]) => entry.person === person).map(([runId]) => runId);
+    },
+    release(runId) {
+      const entry = live.get(runId);
+      if (!entry) return;
+      live.delete(runId);
+      // The worker may not have heard yet; the run is over either way.
+      entry.process.kill('SIGKILL');
+      entry.process.end(RELEASED_RESULT);
     },
     noteNotCopied(person, runId, projectPath) {
       const record = owned(person, runId)?.process.transferRecord;

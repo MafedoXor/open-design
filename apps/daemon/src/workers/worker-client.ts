@@ -184,6 +184,8 @@ async function connectOnce(
         }, helloEvent.heartbeatIntervalMs);
         onConnected();
         options.onEvent?.({ type: 'connected', hello: helloEvent });
+        // Run handling needs it too: it says which runs the server still has.
+        deliverServerEvent(options, message);
       }
     } catch (error) {
       if (!connection.signal.aborted) {

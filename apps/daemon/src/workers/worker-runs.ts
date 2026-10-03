@@ -4,12 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { collectProcessTreePids, listProcessSnapshots, signalProcesses } from '@open-design/platform';
 import {
   WORKER_RUN_ENV_KEYS,
   WORKER_RUN_EVENTS,
   workerBridgeRunExitPath,
   workerBridgeRunOutputPath,
   workerBridgeRunProjectPath,
+  type WorkerHelloEvent,
   type WorkerRunExitRequest,
   type WorkerRunKillEvent,
   type WorkerRunOutputChunk,
@@ -43,6 +45,12 @@ import {
  * - The agent runs with this PC's own environment and login. From the server
  *   it takes only the run's callback variables (`WORKER_RUN_ENV_KEYS`), and
  *   reaches the server at the URL this worker uses.
+ * - Stopping a run stops the agent's whole process tree: SIGTERM, then
+ *   SIGKILL if it is still running after `KILL_GRACE_MS`, and anything left
+ *   in its process group once it has exited.
+ * - A run the server no longer has (it was cancelled, or failed while this
+ *   worker was away) is stopped when the worker hears so, on its output or
+ *   on reconnect, and sends nothing more: no changes, no exit.
  */
 
 export interface WorkerLaunch {
@@ -67,6 +75,8 @@ export interface WorkerRunExecutorOptions {
   /** How an agent on this PC runs `od` (`OD_BIN`) and with which Node (`OD_NODE_BIN`). */
   cliEnv?: { OD_BIN?: string; OD_NODE_BIN?: string };
   onEvent?: (event: WorkerRunExecutorEvent) => void;
+  /** How long a stopped agent gets on SIGTERM before SIGKILL. Defaults to `KILL_GRACE_MS`. */
+  killGraceMs?: number;
 }
 
 export interface WorkerRunExecutor {
@@ -88,6 +98,8 @@ const POST_ATTEMPTS = 3;
  */
 const EXIT_POST_ATTEMPTS = 12;
 const POST_RETRY_DELAY_MS = 250;
+/** How long a stopped agent gets to exit on SIGTERM before its tree is killed. */
+const KILL_GRACE_MS = 5_000;
 
 interface ActiveRun {
   runId: string;
@@ -111,6 +123,8 @@ interface ActiveRun {
   pendingStdin: string[];
   pendingStdinEnd: boolean;
   pendingKill: NodeJS.Signals | null;
+  /** Escalates a stop to SIGKILL if the agent outlives its grace period. */
+  killTimer: ReturnType<typeof setTimeout> | null;
   /** Cancels the project download when the run is killed before its agent starts. */
   abort: AbortController;
   /** Settles when the run has been reported and its directory removed. */
@@ -169,20 +183,46 @@ function takeBatch(outbox: WorkerRunOutputChunk[]): WorkerRunOutputChunk[] {
   return batch;
 }
 
-function signalTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  // Agents run as process-group leaders on POSIX so their tools die with them.
-  if (process.platform !== 'win32' && typeof child.pid === 'number') {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch {
-      // Fall back to the direct child below.
-    }
-  }
+function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   try {
     child.kill(signal);
   } catch {
     // Already gone.
+  }
+}
+
+/** Signals the agent and everything it started. */
+function signalTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (typeof pid !== 'number') return signalChild(child, signal);
+  if (process.platform === 'win32') {
+    // No process groups: find the tree by parent pid while the agent still
+    // holds it together. Windows ends a signalled process outright.
+    void listProcessSnapshots()
+      .then((snapshots) => signalProcesses(collectProcessTreePids(snapshots, [pid]), signal))
+      .catch(() => signalChild(child, signal));
+    return;
+  }
+  // Agents run as process-group leaders on POSIX so their tools die with them.
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    signalChild(child, signal);
+  }
+}
+
+/**
+ * Kills what is left of an exited agent's process group: tools that outlived
+ * it would otherwise keep running on the PC with nobody to stop them. The
+ * server does the same for a run on the server when it ends. Windows has no
+ * process group; there, only a stop reaches the agent's tree.
+ */
+function reapProcessGroup(child: ChildProcess): void {
+  if (process.platform === 'win32' || typeof child.pid !== 'number') return;
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    // The group is already empty.
   }
 }
 
@@ -241,9 +281,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
         const request: WorkerRunOutputRequest = { chunks: takeBatch(run.outbox) };
         if (!(await post(workerBridgeRunOutputPath(run.runId), request))) {
           // The server dropped the run; nobody is listening for this agent any more.
-          run.gone = true;
-          run.outbox.length = 0;
-          if (run.child) signalTree(run.child, 'SIGTERM');
+          abandon(run);
           return;
         }
       }
@@ -265,13 +303,43 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       return `could not read the agent's changes: ${(error as Error).message}`;
     }
     const outcome = await send(workerBridgeRunProjectPath(run.runId), new Uint8Array(body), 'application/gzip', EXIT_POST_ATTEMPTS);
-    // A run the server dropped has nobody to apply its changes for.
+    // A run the server dropped has nobody to apply its changes for, or to report an exit to.
+    if (outcome === 'gone') run.gone = true;
     return outcome && outcome !== 'gone' ? outcome.problem : null;
+  };
+
+  /**
+   * Stops the run's agent and its tree, escalating to SIGKILL when SIGTERM
+   * is not enough. Before the agent has started, its project download is
+   * cancelled and it never starts.
+   */
+  const stop = (run: ActiveRun, signal: NodeJS.Signals) => {
+    if (run.finished) return;
+    const child = run.child;
+    if (!child) {
+      if (signal === 'SIGKILL' || !run.pendingKill) run.pendingKill = signal;
+      run.abort.abort();
+      return;
+    }
+    signalTree(child, signal);
+    if (signal === 'SIGKILL' || run.killTimer) return;
+    run.killTimer = setTimeout(() => {
+      if (!run.finished) signalTree(child, 'SIGKILL');
+    }, options.killGraceMs ?? KILL_GRACE_MS);
+    run.killTimer.unref?.();
+  };
+
+  /** The server no longer has this run: stop it and send nothing more for it. */
+  const abandon = (run: ActiveRun) => {
+    run.gone = true;
+    run.outbox.length = 0;
+    stop(run, 'SIGTERM');
   };
 
   const finish = (run: ActiveRun, result: WorkerRunExitRequest) => {
     if (run.finished) return;
     run.finished = true;
+    clearTimeout(run.killTimer ?? undefined);
     enqueue(run, async () => {
       let report = result;
       const problem = await sendChanges(run);
@@ -285,7 +353,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       // The copy is not needed past this point; remove it before the server
       // hears the run ended, so nothing of it outlives the run.
       if (run.root) await fs.promises.rm(run.root, { recursive: true, force: true }).catch(() => {});
-      await post(workerBridgeRunExitPath(run.runId), report, EXIT_POST_ATTEMPTS);
+      if (!run.gone) await post(workerBridgeRunExitPath(run.runId), report, EXIT_POST_ATTEMPTS);
       runs.delete(run.runId);
       options.onEvent?.({ type: 'finished', runId: run.runId, result: report });
       run.markDone();
@@ -381,7 +449,10 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
     child.on('error', (error) => {
       finish(run, { code: null, signal: null, error: `could not start ${request.agentId}: ${error.message}` });
     });
-    child.on('close', (code, signal) => finish(run, { code, signal }));
+    child.on('close', (code, signal) => {
+      reapProcessGroup(child);
+      finish(run, { code, signal });
+    });
     if (typeof request.stdin === 'object' && request.stdin && typeof request.stdin.prompt === 'string') {
       child.stdin?.end(toPcPaths(run, request.stdin.prompt));
       return;
@@ -429,6 +500,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       pendingStdin: [],
       pendingStdinEnd: false,
       pendingKill: null,
+      killTimer: null,
       abort: new AbortController(),
       done: Promise.resolve(),
       markDone: () => {},
@@ -446,6 +518,17 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       start(data as WorkerRunStartEvent);
       return;
     }
+    if (event === 'hello') {
+      // Reconnected: runs the server no longer has ended while we were away.
+      // A server that predates `liveRunIds` says nothing, so nothing is stopped.
+      const liveRunIds = (data as WorkerHelloEvent | null)?.liveRunIds;
+      if (!Array.isArray(liveRunIds)) return;
+      const live = new Set(liveRunIds);
+      for (const run of runs.values()) {
+        if (!run.finished && !live.has(run.runId)) abandon(run);
+      }
+      return;
+    }
     const run = runs.get((data as { runId?: string } | null)?.runId ?? '');
     if (!run || run.finished) return;
     const child = run.child;
@@ -461,13 +544,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
       else child.stdin?.end();
     } else if (event === WORKER_RUN_EVENTS.kill) {
       const { signal } = data as WorkerRunKillEvent;
-      const resolved: NodeJS.Signals = signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM';
-      if (child) {
-        signalTree(child, resolved);
-      } else {
-        run.pendingKill = resolved;
-        run.abort.abort();
-      }
+      stop(run, signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM');
     }
   };
 
@@ -475,14 +552,7 @@ export function createWorkerRunExecutor(options: WorkerRunExecutorOptions): Work
     handle,
     async stopAll() {
       const live = [...runs.values()];
-      for (const run of live) {
-        if (run.child) {
-          signalTree(run.child, 'SIGTERM');
-        } else {
-          run.pendingKill = 'SIGTERM';
-          run.abort.abort();
-        }
-      }
+      for (const run of live) stop(run, 'SIGTERM');
       await Promise.all(live.map((run) => run.done));
     },
   };

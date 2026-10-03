@@ -238,6 +238,7 @@ export function registerWorkerRoutes(app: Express, options: RegisterWorkerRoutes
       person,
       heartbeatIntervalMs: options.heartbeatIntervalMs,
       pingIntervalMs: options.pingIntervalMs,
+      liveRunIds: options.runs.liveRunIds(person),
     };
     write('hello', helloEvent);
   });
