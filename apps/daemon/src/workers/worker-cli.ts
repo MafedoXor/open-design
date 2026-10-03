@@ -8,6 +8,7 @@ import type {
 } from '@open-design/contracts';
 import { resolveDaemonUrl } from '../daemon-url.js';
 import { runWorker, WorkerTokenRejectedError } from './worker-client.js';
+import { createWorkerRunExecutor, type WorkerLaunch } from './worker-runs.js';
 
 const USAGE = `Usage:
   od worker --server <url> [--token <token>]
@@ -39,6 +40,8 @@ export interface WorkerCliDeps {
   stderr: (text: string) => void;
   /** Reports this PC to the server. Defaults to probing the installed agent CLIs. */
   describe: () => Promise<WorkerHelloRequest>;
+  /** How to start an agent on this PC. Defaults to the agent CLI found on PATH. */
+  resolveLaunch?: (agentId: string, args: string[]) => WorkerLaunch | null;
   /** Stops a running worker. Defaults to SIGINT/SIGTERM. */
   signal?: AbortSignal;
 }
@@ -98,6 +101,27 @@ export async function describeThisPc(): Promise<WorkerHelloRequest> {
   };
 }
 
+export async function resolveLaunchOnThisPc(): Promise<(agentId: string, args: string[]) => WorkerLaunch | null> {
+  const [{ getAgentDef }, { resolveAgentLaunch }, { createCommandInvocation }] = await Promise.all([
+    import('../runtimes/registry.js'),
+    import('../runtimes/launch.js'),
+    import('@open-design/platform'),
+  ]);
+  return (agentId, args) => {
+    const def = getAgentDef(agentId);
+    const launchPath = def ? resolveAgentLaunch(def).launchPath : null;
+    if (!launchPath) return null;
+    const invocation = createCommandInvocation({ command: launchPath, args });
+    return {
+      command: invocation.command,
+      args: [...invocation.args],
+      ...(invocation.windowsVerbatimArguments !== undefined
+        ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments }
+        : {}),
+    };
+  };
+}
+
 function signalFromProcess(): AbortSignal {
   const controller = new AbortController();
   const stop = () => controller.abort();
@@ -113,10 +137,24 @@ async function connect(parsed: ParsedArgs, deps: WorkerCliDeps): Promise<number>
     throw new UsageError('od worker needs --server <url> and a token (--token or OD_WORKER_TOKEN)');
   }
   deps.stderr(`[worker] connecting to ${serverUrl}\n`);
+  const executor = createWorkerRunExecutor({
+    serverUrl,
+    token,
+    resolveLaunch: deps.resolveLaunch ?? await resolveLaunchOnThisPc(),
+    onEvent: (event) => {
+      if (event.type === 'started') {
+        deps.stderr(`[worker] run ${event.runId}: starting ${event.agentId}\n`);
+      } else {
+        const { code, signal, error } = event.result;
+        deps.stderr(`[worker] run ${event.runId}: ${error ?? `exited ${signal ?? code}`}\n`);
+      }
+    },
+  });
   try {
     await runWorker({
       serverUrl,
       token,
+      onServerEvent: executor.handle,
       describe: async () => {
         const hello = await deps.describe();
         const names = hello.agents.map((agent) => agent.name).join(', ') || 'none';
@@ -135,12 +173,14 @@ async function connect(parsed: ParsedArgs, deps: WorkerCliDeps): Promise<number>
       },
     });
   } catch (error) {
+    executor.stopAll();
     if (error instanceof WorkerTokenRejectedError) {
       deps.stderr(`[worker] ${error.message}. Ask for a new token with: od worker token create --person <name>\n`);
       return 1;
     }
     throw error;
   }
+  executor.stopAll();
   deps.stderr('[worker] stopped\n');
   return 0;
 }

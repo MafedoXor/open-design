@@ -74,6 +74,9 @@ export const API_ERROR_CODES = [
   // surface the def-correctness error so it shows up in dev rather
   // than silently disabling the agent-specific watchdog.
   'AGENT_RUNTIME_DEF_INVALID',
+  // The run was sent to a person's remote worker (`runOn`) and that worker is
+  // not connected. The run fails instead of falling back to the server.
+  'WORKER_OFFLINE',
   'PROJECT_NOT_FOUND',
   'PROJECT_MATERIALIZATION_PENDING',
   // Handoff (`POST /api/projects/:id/handoff`): the requested conversation

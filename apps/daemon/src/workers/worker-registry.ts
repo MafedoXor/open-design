@@ -29,6 +29,8 @@ export interface WorkerRegistry {
   disconnect(sessionId: string): void;
   disconnectPerson(person: string): void;
   status(person: string): WorkerConnectionStatus;
+  /** Writes an event on the person's live channel. False when they have no live worker. */
+  send(person: string, event: string, data: unknown): boolean;
   /** People with a live session. */
   onlinePeople(): string[];
   /** Closes sessions that have gone quiet past the bound. */
@@ -128,6 +130,12 @@ export function createWorkerRegistry({
         connectedAt: new Date(session.connectedAt).toISOString(),
         lastSeenAt: new Date(session.lastSeenAt).toISOString(),
       };
+    },
+    send(person, event, data) {
+      const session = byPerson.get(person);
+      if (!session || !isFresh(session)) return false;
+      session.channel.send(event, data);
+      return true;
     },
     onlinePeople() {
       return [...byPerson.values()].filter(isFresh).map((session) => session.person);

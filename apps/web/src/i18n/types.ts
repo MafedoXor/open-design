@@ -5721,4 +5721,9 @@ export interface Dict {
   'worker.copyCommand': string;
   'worker.copied': string;
   'worker.requestFailed': string;
+  'worker.runOnLabel': string;
+  'worker.runOnServer': string;
+  'worker.runOnWorker': string;
+  'worker.runOnHint': string;
+  'worker.runOnOffline': string;
 }

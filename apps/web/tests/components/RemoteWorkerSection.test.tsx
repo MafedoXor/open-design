@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerStatus } from '@open-design/contracts';
 
 import { RemoteWorkerSection } from '../../src/components/RemoteWorkerSection';
-import { MY_WORKER_PERSON_STORAGE_KEY } from '../../src/workers/worker-api';
+import { MY_WORKER_PERSON_STORAGE_KEY, readRunOnChoice } from '../../src/workers/worker-api';
 import { I18nProvider } from '../../src/i18n';
 
 function workerStatus(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
@@ -117,6 +117,35 @@ describe('RemoteWorkerSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText(/Use letters, digits/)).toBeTruthy();
     expect(window.localStorage.getItem(MY_WORKER_PERSON_STORAGE_KEY)).toBeNull();
+  });
+
+  it('chooses to run new messages on my worker and remembers it in this browser', async () => {
+    window.localStorage.setItem(MY_WORKER_PERSON_STORAGE_KEY, 'Alice');
+    stubFetch(() => workerStatus({ online: true, hostname: 'alice-pc', platform: 'darwin' }));
+    renderSection();
+    const picker = (await screen.findByLabelText('Run new messages on')) as HTMLSelectElement;
+    expect(picker.value).toBe('server');
+    expect(screen.getByRole('option', { name: "Alice's worker" })).toBeTruthy();
+    fireEvent.change(picker, { target: { value: 'my-worker' } });
+    expect(readRunOnChoice()).toBe('my-worker');
+
+    cleanup();
+    renderSection();
+    expect(((await screen.findByLabelText('Run new messages on')) as HTMLSelectElement).value).toBe('my-worker');
+  });
+
+  it('warns that runs will fail while the chosen worker is offline', async () => {
+    window.localStorage.setItem(MY_WORKER_PERSON_STORAGE_KEY, 'Alice');
+    stubFetch(() => workerStatus());
+    renderSection();
+    fireEvent.change(await screen.findByLabelText('Run new messages on'), { target: { value: 'my-worker' } });
+    expect(await screen.findByText(/runs will fail until it reconnects/)).toBeTruthy();
+  });
+
+  it('offers no worker to run on before a name is saved', () => {
+    stubFetch(() => workerStatus());
+    renderSection();
+    expect(screen.queryByLabelText('Run new messages on')).toBeNull();
   });
 
   it('revokes the token', async () => {

@@ -17,6 +17,8 @@ import {
   type StrategyTaskProjectionV2,
   type ProjectMetadata as ContractProjectMetadata,
   type RunResultPackageResponse,
+  normalizeRunTarget,
+  RUN_TARGET_INVALID_MESSAGE,
 } from '@open-design/contracts';
 import {
   buildRunCreatedV4Aliases,
@@ -1692,6 +1694,10 @@ export function registerRunRoutes(app: Express, ctx: RegisterRunRoutesDeps) {
     const toolBundle = parseRunToolBundleForRequest(requestBody.toolBundle);
     if (!toolBundle.ok) {
       return sendApiError(res, 400, 'BAD_REQUEST', toolBundle.message);
+    }
+    // A malformed worker target must not quietly run on the server instead.
+    if (requestBody.runOn != null && !normalizeRunTarget(requestBody.runOn)) {
+      return sendApiError(res, 400, 'BAD_REQUEST', RUN_TARGET_INVALID_MESSAGE);
     }
     if (!hasCompleteByokOpenCodeConfig(requestBody)) {
       return sendApiError(

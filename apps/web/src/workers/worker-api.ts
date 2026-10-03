@@ -1,4 +1,5 @@
 import type {
+  RunTarget,
   WorkerStatus,
   WorkerTokenCreateResponse,
 } from '@open-design/contracts';
@@ -24,6 +25,36 @@ export function writeMyWorkerPerson(person: string): void {
   } catch {
     // Private windows can refuse storage; the name then lasts for this page only.
   }
+}
+
+/** Where this browser's new runs execute: on the server, or on my worker. */
+export type RunOnChoice = 'server' | 'my-worker';
+export const RUN_ON_STORAGE_KEY = 'od:run-on';
+
+export function readRunOnChoice(): RunOnChoice {
+  try {
+    return window.localStorage.getItem(RUN_ON_STORAGE_KEY) === 'my-worker' ? 'my-worker' : 'server';
+  } catch {
+    return 'server';
+  }
+}
+
+export function writeRunOnChoice(choice: RunOnChoice): void {
+  try {
+    window.localStorage.setItem(RUN_ON_STORAGE_KEY, choice);
+  } catch {
+    // As with the name: without storage the choice lasts for this page only.
+  }
+}
+
+/**
+ * The `runOn` a run started from this browser carries, or `undefined` to run
+ * on the server. Choosing "my worker" is only offered once a name is saved.
+ */
+export function runTargetForNextRun(): RunTarget | undefined {
+  if (readRunOnChoice() !== 'my-worker') return undefined;
+  const person = readMyWorkerPerson();
+  return person ? { kind: 'worker', person } : undefined;
 }
 
 async function readJson<T>(response: Response): Promise<T> {

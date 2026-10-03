@@ -10,9 +10,10 @@ import {
  * The worker side of the bridge: `od worker` on a person's PC.
  *
  * It only ever opens outbound HTTP requests to the server: one long-lived
- * event stream (the channel the server will later push runs down) and short
- * heartbeat POSTs. Nothing listens on the PC. A dropped channel is retried
- * with backoff; a refused token is not, because retrying cannot fix it.
+ * event stream and short heartbeat POSTs. Runs arrive as events on that
+ * stream and their output goes back as POSTs (see worker-runs.ts). Nothing
+ * listens on the PC. A dropped channel is retried with backoff; a refused
+ * token is not, because retrying cannot fix it.
  */
 
 export class WorkerTokenRejectedError extends Error {
@@ -36,6 +37,8 @@ export interface RunWorkerOptions {
   /** Delay before reconnect attempt `attempt` (1-based). */
   reconnectDelayMs?: (attempt: number) => number;
   onEvent?: (event: WorkerClientEvent) => void;
+  /** Every other event the server sends on the channel (runs to execute), with its JSON payload. */
+  onServerEvent?: (event: string, data: unknown) => void;
 }
 
 /** Silence allowed before the first event arrives. */
@@ -83,6 +86,21 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     }
     signal?.addEventListener('abort', done, { once: true });
   });
+}
+
+function deliverServerEvent(options: RunWorkerOptions, message: SseEvent): void {
+  if (!options.onServerEvent) return;
+  let data: unknown;
+  try {
+    data = JSON.parse(message.data);
+  } catch {
+    return;
+  }
+  try {
+    options.onServerEvent(message.event, data);
+  } catch {
+    // A handler bug must not tear down the channel every other run depends on.
+  }
 }
 
 /**
@@ -137,7 +155,11 @@ async function connectOnce(
     try {
       for await (const message of readServerSentEvents(response.body)) {
         armWatchdog(silenceBudgetMs);
-        if (message.event !== 'hello') continue;
+        if (message.event === 'ping') continue;
+        if (message.event !== 'hello') {
+          deliverServerEvent(options, message);
+          continue;
+        }
         const helloEvent = JSON.parse(message.data) as WorkerHelloEvent;
         silenceBudgetMs = helloEvent.pingIntervalMs * MISSED_PINGS_BEFORE_RECONNECT;
         armWatchdog(silenceBudgetMs);

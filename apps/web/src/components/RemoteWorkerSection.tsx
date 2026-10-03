@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Button, Input } from '@open-design/components';
+import { Button, Input, Select } from '@open-design/components';
 import { normalizeWorkerPerson, type WorkerStatus } from '@open-design/contracts';
 
 import { useT } from '../i18n';
@@ -7,9 +7,12 @@ import {
   createWorkerToken,
   fetchWorkerStatus,
   readMyWorkerPerson,
+  readRunOnChoice,
   revokeWorkerToken,
   workerConnectCommand,
   writeMyWorkerPerson,
+  writeRunOnChoice,
+  type RunOnChoice,
 } from '../workers/worker-api';
 import { Icon } from './Icon';
 import styles from './RemoteWorkerSection.module.css';
@@ -25,11 +28,15 @@ interface IssuedToken {
 /**
  * Settings → Remote worker. Shows whether this browser's person has a worker
  * connected, which agent CLIs it offers, and issues/revokes that person's
- * worker token. `od worker status|token` is the CLI twin of this section.
+ * worker token. It is also where this browser chooses to run new messages on
+ * that worker. `od worker status|token` and `od run start --worker` are the
+ * CLI twins of this section.
  */
 export function RemoteWorkerSection() {
   const t = useT();
   const nameId = useId();
+  const runOnId = useId();
+  const [runOn, setRunOn] = useState<RunOnChoice>(() => readRunOnChoice());
   const [person, setPerson] = useState<string | null>(() => readMyWorkerPerson());
   const [draft, setDraft] = useState(() => person ?? '');
   const [nameInvalid, setNameInvalid] = useState(false);
@@ -76,6 +83,12 @@ export function RemoteWorkerSection() {
     setIssued(null);
     setPerson(normalized);
   };
+
+  const chooseRunOn = (choice: RunOnChoice) => {
+    writeRunOnChoice(choice);
+    setRunOn(choice);
+  };
+  const workerUnreachable = runOn === 'my-worker' && status !== null && !status.online;
 
   const issueToken = async () => {
     if (!person) return;
@@ -148,6 +161,25 @@ export function RemoteWorkerSection() {
           {nameInvalid ? t('worker.personInvalid') : t('worker.personHint')}
         </span>
       </div>
+
+      {person ? (
+        <div className={styles.nameRow}>
+          <label htmlFor={runOnId} className={styles.label}>
+            {t('worker.runOnLabel')}
+          </label>
+          <Select
+            id={runOnId}
+            value={runOn}
+            onChange={(event) => chooseRunOn(event.target.value === 'my-worker' ? 'my-worker' : 'server')}
+          >
+            <option value="server">{t('worker.runOnServer')}</option>
+            <option value="my-worker">{t('worker.runOnWorker', { person })}</option>
+          </Select>
+          <span className={workerUnreachable ? styles.error : styles.hint} role={workerUnreachable ? 'alert' : undefined}>
+            {workerUnreachable ? t('worker.runOnOffline') : t('worker.runOnHint')}
+          </span>
+        </div>
+      ) : null}
 
       {person && status ? (
         <div className={styles.card}>

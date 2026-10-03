@@ -35,6 +35,8 @@ import {
 import {
   advanceAuthenticatedDoneCapture,
   isTodoWriteToolName,
+  normalizeRunTarget,
+  RUN_TARGET_INVALID_MESSAGE,
   stopReasonIsTruncation,
   todoItemsFromTodoWriteInput,
 } from '@open-design/contracts';
@@ -900,6 +902,7 @@ import { registerConnectorRoutes } from './connectors/routes.js';
 import { registerActiveContextRoutes } from './routes/active-context.js';
 import { isWorkerBridgePath, registerWorkerRoutes } from './routes/workers.js';
 import { createWorkerRegistry } from './workers/worker-registry.js';
+import { createRemoteRunDispatcher, WorkerOfflineError } from './workers/remote-runs.js';
 import { createWorkerTokenStore } from './workers/worker-tokens.js';
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
@@ -8176,6 +8179,7 @@ export async function startServer({
     filePath: path.join(RUNTIME_DATA_DIR, 'workers', 'tokens.json'),
   });
   const workerRegistry = createWorkerRegistry({ offlineAfterMs: WORKER_OFFLINE_AFTER_MS });
+  const remoteRuns = createRemoteRunDispatcher({ registry: workerRegistry });
   const workerSweepTimer = setInterval(() => workerRegistry.sweep(), WORKER_HEARTBEAT_INTERVAL_MS);
   workerSweepTimer.unref?.();
   const httpDeps = {
@@ -8646,6 +8650,7 @@ export async function startServer({
   registerWorkerRoutes(app, {
     tokens: workerTokens,
     registry: workerRegistry,
+    runs: remoteRuns,
     http: httpDeps,
     heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
     pingIntervalMs: WORKER_PING_INTERVAL_MS,
@@ -11010,7 +11015,14 @@ export async function startServer({
       titleGeneration,
       byokProvider,
       byokMediaDefaults,
+      runOn,
     } = chatBody;
+    // Where the agent process runs. A worker target never falls back to the
+    // server: a run sent to an offline worker fails.
+    const runTarget = normalizeRunTarget(runOn);
+    if (runOn != null && !runTarget) {
+      return design.runs.fail(run, 'BAD_REQUEST', RUN_TARGET_INVALID_MESSAGE);
+    }
     lifecycle.mark('prompt_build_start');
     if (typeof projectId === 'string' && projectId) run.projectId = projectId;
     if (typeof conversationId === 'string' && conversationId)
@@ -14502,18 +14514,32 @@ export async function startServer({
       // framed stdin protocols (stream-json, JSON-RPC) keep the pipe. The
       // agent stays on record until its process group is gone, so a daemon
       // started after this one dies can reap it. See runtimes/agent-process.ts.
-      const spawnedAgent = spawnAgentProcess({
-        command: invocation.command,
-        args: invocation.args,
-        env,
-        cwd: effectiveCwd,
-        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-        stdin: stdinMode === 'pipe' && runtimeReadsPlainTextPromptFromStdin(def)
-          ? { prompt: composed }
-          : stdinMode,
-        runDir: path.join(RUNTIME_DATA_DIR, 'runs', run.id),
-        runId: run.id,
-      });
+      const agentStdin = stdinMode === 'pipe' && runtimeReadsPlainTextPromptFromStdin(def)
+        ? { prompt: composed }
+        : stdinMode;
+      // On a worker only the process moves: it gets the same argv and prompt,
+      // and its output comes back through the same stdout/stderr handlers.
+      const spawnedAgent = runTarget
+        ? {
+            child: remoteRuns.spawn(runTarget.person, {
+              runId: run.id,
+              agentId: def.id,
+              args: [...args],
+              stdin: agentStdin,
+            }),
+            processGroupId: null,
+            promptDeliveredAtSpawn: typeof agentStdin === 'object',
+          }
+        : spawnAgentProcess({
+            command: invocation.command,
+            args: invocation.args,
+            env,
+            cwd: effectiveCwd,
+            windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+            stdin: agentStdin,
+            runDir: path.join(RUNTIME_DATA_DIR, 'runs', run.id),
+            runId: run.id,
+          });
       child = spawnedAgent.child;
       promptDeliveredAtSpawn = spawnedAgent.promptDeliveredAtSpawn;
       lifecycle.mark('process_spawned');
@@ -14607,10 +14633,10 @@ export async function startServer({
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
       send('error', createSseErrorPayload(
-        err instanceof AmrWorkspaceScopeRequiredError
+        err instanceof AmrWorkspaceScopeRequiredError || err instanceof WorkerOfflineError
           ? err.code
           : 'AGENT_EXECUTION_FAILED',
-        err instanceof AmrWorkspaceScopeRequiredError
+        err instanceof AmrWorkspaceScopeRequiredError || err instanceof WorkerOfflineError
           ? err.message
           : `spawn failed: ${err.message}`,
       ));

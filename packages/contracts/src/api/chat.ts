@@ -9,6 +9,7 @@ import type {
   PreviewVisualMarkKind,
 } from './comments';
 import type { ResearchOptions } from './research';
+import type { RunTarget } from './workers.js';
 import type { RunContextSelection } from './context.js';
 import type { MediaExecutionPolicy, RunMediaTaskFailure } from './media.js';
 import type { AppliedPluginSnapshot } from '../plugins/apply.js';
@@ -213,6 +214,12 @@ export interface ChatRequest {
    * and are never written into the persistent Settings MCP registry.
    */
   toolBundle?: RunScopedToolBundle;
+  /**
+   * Where the agent process runs. Omitted runs it on the server. A worker
+   * target hands it to that person's connected worker and never falls back
+   * to the server.
+   */
+  runOn?: RunTarget;
   /**
    * Optional analytics context for the current run_created / run_finished
    * events. The daemon never trusts these for behavior — they only

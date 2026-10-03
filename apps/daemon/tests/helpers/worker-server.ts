@@ -5,11 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { registerWorkerRoutes, type RegisterWorkerRoutesDeps } from '../../src/routes/workers.js';
+import { createRemoteRunDispatcher, type RemoteRunDispatcher } from '../../src/workers/remote-runs.js';
 import { createWorkerRegistry } from '../../src/workers/worker-registry.js';
 import { createWorkerTokenStore } from '../../src/workers/worker-tokens.js';
 
 export interface WorkerTestServer {
   baseUrl: string;
+  runs: RemoteRunDispatcher;
   close(): Promise<void>;
 }
 
@@ -22,9 +24,11 @@ export async function startWorkerTestServer({
   app.use(express.json());
   const resolvedPortRef = { current: 0 };
   const registry = createWorkerRegistry({ offlineAfterMs });
+  const runs = createRemoteRunDispatcher({ registry });
   registerWorkerRoutes(app, {
     tokens: createWorkerTokenStore({ filePath: path.join(dataDir, 'workers', 'tokens.json') }),
     registry,
+    runs,
     // The worker routes read only `resolvedPortRef` from the HTTP deps.
     http: { resolvedPortRef } as unknown as RegisterWorkerRoutesDeps['http'],
     heartbeatIntervalMs: 50,
@@ -36,6 +40,7 @@ export async function startWorkerTestServer({
   resolvedPortRef.current = (server.address() as AddressInfo).port;
   return {
     baseUrl: `http://127.0.0.1:${resolvedPortRef.current}`,
+    runs,
     async close() {
       registry.closeAll();
       server.closeAllConnections();

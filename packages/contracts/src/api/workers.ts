@@ -97,3 +97,98 @@ export interface WorkerTokenRevokeResponse {
 /** Worker-side endpoints. They authenticate with the worker token, not the API token. */
 export const WORKER_BRIDGE_CONNECT_PATH = '/api/worker-bridge/connect';
 export const WORKER_BRIDGE_HEARTBEAT_PATH = '/api/worker-bridge/heartbeat';
+
+/**
+ * Where a run executes. Omitted means on the server, as before. `worker`
+ * hands the agent process to that person's connected worker; the server
+ * still owns the run and receives its output.
+ */
+export type RunTarget = { kind: 'worker'; person: string };
+
+export const RUN_TARGET_INVALID_MESSAGE = 'runOn must be { kind: "worker", person: "<name>" }';
+
+/** Returns a well-formed run target, or `null` when the value is not one. */
+export function normalizeRunTarget(value: unknown): RunTarget | null {
+  if (!value || typeof value !== 'object') return null;
+  const input = value as Record<string, unknown>;
+  if (input.kind !== 'worker') return null;
+  const person = normalizeWorkerPerson(input.person);
+  return person ? { kind: 'worker', person } : null;
+}
+
+/**
+ * How the agent's prompt reaches its stdin on the worker: a complete prompt
+ * written then closed, a pipe the server keeps writing to (`run-stdin`
+ * events), or nothing.
+ */
+export type WorkerRunStdin = { prompt: string } | 'pipe' | 'ignore';
+
+/** Server → worker, on the channel: start an agent process for this run. */
+export interface WorkerRunStartEvent {
+  runId: string;
+  /** Agent id from the registry; the worker resolves its own executable for it. */
+  agentId: string;
+  args: string[];
+  stdin: WorkerRunStdin;
+}
+
+/** Server → worker: more bytes for the agent's stdin (`stdin: 'pipe'` runs). */
+export interface WorkerRunStdinEvent {
+  runId: string;
+  data: string;
+}
+
+/** Server → worker: close the agent's stdin. */
+export interface WorkerRunStdinEndEvent {
+  runId: string;
+}
+
+/** Server → worker: signal the agent process. */
+export interface WorkerRunKillEvent {
+  runId: string;
+  signal: string;
+}
+
+/** Event names the server sends a worker for runs. */
+export const WORKER_RUN_EVENTS = {
+  start: 'run-start',
+  stdin: 'run-stdin',
+  stdinEnd: 'run-stdin-end',
+  kill: 'run-kill',
+} as const;
+
+export interface WorkerRunOutputChunk {
+  stream: 'stdout' | 'stderr';
+  data: string;
+}
+
+/** Worker → server: agent output, in order. */
+export interface WorkerRunOutputRequest {
+  chunks: WorkerRunOutputChunk[];
+}
+
+/**
+ * Worker → server: the agent process ended. `error` is set when it could not
+ * start at all (for example the agent CLI is not installed on the PC).
+ */
+export interface WorkerRunExitRequest {
+  code: number | null;
+  signal: string | null;
+  error?: string;
+}
+
+export interface WorkerRunAckResponse {
+  ok: true;
+}
+
+/** Express route patterns for the two endpoints below. */
+export const WORKER_BRIDGE_RUN_OUTPUT_ROUTE = '/api/worker-bridge/runs/:runId/output';
+export const WORKER_BRIDGE_RUN_EXIT_ROUTE = '/api/worker-bridge/runs/:runId/exit';
+
+export function workerBridgeRunOutputPath(runId: string): string {
+  return `/api/worker-bridge/runs/${encodeURIComponent(runId)}/output`;
+}
+
+export function workerBridgeRunExitPath(runId: string): string {
+  return `/api/worker-bridge/runs/${encodeURIComponent(runId)}/exit`;
+}

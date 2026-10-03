@@ -90,6 +90,7 @@ import { setChatCorrelation } from '../observability/chat-context';
 import { chatSurfaceRunEnded, chatSurfaceRunStarted } from '../observability/chat-health';
 import { markUpstreamActivity } from '../runtime/chat/upstream-activity';
 import { IN_FLIGHT_TOOL_INPUT_MARKER, IN_FLIGHT_TOOL_OUTPUT_KEY } from '../runtime/tool-events';
+import { runTargetForNextRun } from '../workers/worker-api';
 
 /**
  * A run is streaming into the chat panel exactly between these two calls.
@@ -1107,6 +1108,8 @@ export async function streamViaDaemon({
     ...(titleGeneration?.enabled ? { titleGeneration: { enabled: true } } : {}),
     ...(analyticsHints ? { analyticsHints } : {}),
   };
+  const runOn = runTargetForNextRun();
+  if (runOn) request.runOn = runOn;
   const body = JSON.stringify(request);
 
   try {

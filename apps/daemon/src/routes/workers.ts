@@ -4,7 +4,12 @@ import {
   normalizeWorkerPerson,
   WORKER_BRIDGE_CONNECT_PATH,
   WORKER_BRIDGE_HEARTBEAT_PATH,
+  WORKER_BRIDGE_RUN_EXIT_ROUTE,
+  WORKER_BRIDGE_RUN_OUTPUT_ROUTE,
   type WorkerAgentInfo,
+  type WorkerRunAckResponse,
+  type WorkerRunExitRequest,
+  type WorkerRunOutputChunk,
   type WorkerHeartbeatRequest,
   type WorkerHeartbeatResponse,
   type WorkerHelloEvent,
@@ -24,6 +29,7 @@ import {
   type Result,
 } from '../http/index.js';
 import type { RouteDeps } from '../server-context.js';
+import type { RemoteRunDispatcher } from '../workers/remote-runs.js';
 import type { WorkerRegistry } from '../workers/worker-registry.js';
 import type { WorkerTokenStore } from '../workers/worker-tokens.js';
 
@@ -45,6 +51,7 @@ export interface WorkerRouteDeps {
 }
 
 export interface RegisterWorkerRoutesDeps extends RouteDeps<'http'>, WorkerRouteDeps {
+  runs: RemoteRunDispatcher;
   heartbeatIntervalMs: number;
   pingIntervalMs: number;
 }
@@ -152,6 +159,27 @@ function parseHello(body: unknown): WorkerHelloRequest {
   };
 }
 
+function parseOutputChunks(body: unknown): WorkerRunOutputChunk[] | null {
+  const chunks = (body as { chunks?: unknown } | null)?.chunks;
+  if (!Array.isArray(chunks)) return null;
+  const parsed: WorkerRunOutputChunk[] = [];
+  for (const chunk of chunks) {
+    const { stream, data } = (chunk ?? {}) as Record<string, unknown>;
+    if ((stream !== 'stdout' && stream !== 'stderr') || typeof data !== 'string') return null;
+    parsed.push({ stream, data });
+  }
+  return parsed;
+}
+
+function parseExit(body: unknown): WorkerRunExitRequest {
+  const input = (body ?? {}) as Record<string, unknown>;
+  return {
+    code: typeof input.code === 'number' && Number.isInteger(input.code) ? input.code : null,
+    signal: typeof input.signal === 'string' ? input.signal.slice(0, 32) : null,
+    ...(typeof input.error === 'string' && input.error ? { error: input.error.slice(0, 2_000) } : {}),
+  };
+}
+
 function refuseWorkerToken(res: Response): void {
   sendApiError(res, 401, createApiError('UNAUTHORIZED', 'worker token is invalid or has been revoked'));
 }
@@ -216,5 +244,27 @@ export function registerWorkerRoutes(app: Express, options: RegisterWorkerRoutes
     }
     const beat: WorkerHeartbeatResponse = { ok: true };
     res.status(200).json(beat);
+  });
+
+  // A worker running a run it was handed reports the agent's output, in
+  // order, then its exit. Only the person the run was handed to may report.
+  const runGone = (res: Response) =>
+    sendApiError(res, 404, createApiError('NOT_FOUND', 'no active run with this id for this worker'));
+  const ack: WorkerRunAckResponse = { ok: true };
+
+  app.post(WORKER_BRIDGE_RUN_OUTPUT_ROUTE, (req: Request, res: Response) => {
+    const person = options.tokens.verify(bearerToken(req));
+    if (!person) return refuseWorkerToken(res);
+    const chunks = parseOutputChunks(req.body);
+    if (!chunks) return sendApiError(res, 400, createApiError('BAD_REQUEST', 'chunks must be [{ stream, data }]'));
+    if (!options.runs.output(person, String(req.params.runId), chunks)) return runGone(res);
+    res.status(200).json(ack);
+  });
+
+  app.post(WORKER_BRIDGE_RUN_EXIT_ROUTE, (req: Request, res: Response) => {
+    const person = options.tokens.verify(bearerToken(req));
+    if (!person) return refuseWorkerToken(res);
+    if (!options.runs.exit(person, String(req.params.runId), parseExit(req.body))) return runGone(res);
+    res.status(200).json(ack);
   });
 }
