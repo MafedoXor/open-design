@@ -281,3 +281,34 @@ describe('browser authentication for non-loopback Docker peers', () => {
     });
   });
 });
+
+describe('worker bridge behind the API token', () => {
+  beforeEach(async () => {
+    process.env.OD_API_TOKEN = 'secret-test-token';
+    const started = (await startServer({ port: 0, host: '127.0.0.1', returnServer: true })) as {
+      url: string;
+      server: Server;
+      shutdown?: () => Promise<void> | void;
+    };
+    baseUrl = started.url;
+    server = started.server;
+    shutdown = started.shutdown;
+    makeConnectionsAppearNonLoopback(server);
+  });
+
+  it('keeps worker management behind the API token', async () => {
+    const resp = await fetch(`${baseUrl}/api/workers`);
+    expect(resp.status).toBe(401);
+    expect(((await resp.json()) as { error: { code: string } }).error.code).toBe('API_TOKEN_REQUIRED');
+  });
+
+  it('lets a worker reach the bridge, which then judges its worker token', async () => {
+    const resp = await fetch(`${baseUrl}/api/worker-bridge/connect`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer odw_not-issued', 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(resp.status).toBe(401);
+    expect(((await resp.json()) as { error: { code: string } }).error.code).toBe('UNAUTHORIZED');
+  });
+});

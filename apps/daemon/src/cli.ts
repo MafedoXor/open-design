@@ -5,6 +5,7 @@ import { basename } from 'node:path';
 import { runDaemonCliStartup, startDaemonRuntime } from './daemon-startup.js';
 import { runLiveArtifactsMcpServer } from './mcp-live-artifacts-server.js';
 import { runArtifactsCli } from './artifacts-cli.js';
+import { runWorkerCli } from './workers/worker-cli.js';
 import { runResource } from './resource-cli.js';
 import { runProjectHandoff } from './handoff-cli.js';
 import { runConnectorsToolCli } from './tools-connectors-cli.js';
@@ -430,6 +431,7 @@ const SUBCOMMAND_MAP = {
   config: runConfig,
   library: runLibrary,
   figma: runFigma,
+  worker: runWorker,
 };
 
 function printStrategyHelp() {
@@ -992,6 +994,11 @@ function printRootHelp() {
       Create/update the author's GitHub repo for a local plugin folder.
   od plugin open-design-pr <folder>
       Push a community-catalog branch and open the OpenDesign PR form.
+
+  od worker --server <url> [--token <token>]
+  od worker <status|token create|token revoke> [args]
+      Connect this PC to an Open Design server as your remote worker, or
+      manage worker tokens and status. \`od worker --help\` for details.
 
   od automation <list|get|create|update|run|runs|pause|resume|delete> [args]
       Drive the Automations surface headlessly. Same store as the UI's
@@ -1708,6 +1715,11 @@ async function runResearchSearch(rawArgs) {
     process.exit(4);
   }
   process.stdout.write(`${await resp.text()}\n`);
+}
+
+// `od worker …` lives in worker-cli.ts; see its usage text.
+async function runWorker(args) {
+  process.exit(await runWorkerCli(args));
 }
 
 async function runArtifacts(args) {

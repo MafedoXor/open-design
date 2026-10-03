@@ -898,6 +898,14 @@ import {
 } from './live-artifacts/http-helpers.js';
 import { registerConnectorRoutes } from './connectors/routes.js';
 import { registerActiveContextRoutes } from './routes/active-context.js';
+import { isWorkerBridgePath, registerWorkerRoutes } from './routes/workers.js';
+import { createWorkerRegistry } from './workers/worker-registry.js';
+import { createWorkerTokenStore } from './workers/worker-tokens.js';
+import {
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_OFFLINE_AFTER_MS,
+  WORKER_PING_INTERVAL_MS,
+} from './constants.js';
 import { registerAutomationRoutes } from './routes/automation.js';
 import { registerAttributionRoutes } from './routes/attribution.js';
 import { registerDaemonRoutes } from './routes/daemon.js';
@@ -3245,6 +3253,9 @@ export async function startServer({
     ]);
     app.use('/api', (req, res, next) => {
       if (openProbePaths.has(req.path)) return next();
+      // Remote workers authenticate with their own per-person worker token,
+      // which the worker-bridge routes verify themselves.
+      if (isWorkerBridgePath(req.path)) return next();
       if (req.method === 'GET') {
         const previewAsset = parseProjectPreviewAssetPath(req.path);
         if (
@@ -8161,6 +8172,12 @@ export async function startServer({
       return daemonUrl;
     },
   };
+  const workerTokens = createWorkerTokenStore({
+    filePath: path.join(RUNTIME_DATA_DIR, 'workers', 'tokens.json'),
+  });
+  const workerRegistry = createWorkerRegistry({ offlineAfterMs: WORKER_OFFLINE_AFTER_MS });
+  const workerSweepTimer = setInterval(() => workerRegistry.sweep(), WORKER_HEARTBEAT_INTERVAL_MS);
+  workerSweepTimer.unref?.();
   const httpDeps = {
     sendApiError,
     sendMulterError,
@@ -8624,6 +8641,14 @@ export async function startServer({
   registerXaiRoutes(app, {
     http: httpDeps,
     paths: pathDeps,
+  });
+  // Remote workers: a person's own PC connects outbound and offers its agents.
+  registerWorkerRoutes(app, {
+    tokens: workerTokens,
+    registry: workerRegistry,
+    http: httpDeps,
+    heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    pingIntervalMs: WORKER_PING_INTERVAL_MS,
   });
   // Project workspace
   registerActiveContextRoutes(app, {
@@ -18072,6 +18097,8 @@ export async function startServer({
       orbitService.stop();
       routineService?.stop();
       clearInterval(teamResourcesPollTimer);
+      clearInterval(workerSweepTimer);
+      workerRegistry.closeAll();
       // Disarms synchronously; the returned promise drains an in-flight pass.
       // Nothing here awaits it — the point is that no NEW pass can start once
       // the daemon is coming down.

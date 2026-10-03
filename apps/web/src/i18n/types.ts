@@ -5698,4 +5698,27 @@ export interface Dict {
   'labs.optOutSkip': string;
   'labs.optOutOtherPlaceholder': string;
   'labs.optOutSubmit': string;
+  'worker.navTitle': string;
+  'worker.navHint': string;
+  'worker.pageDesc': string;
+  'worker.personLabel': string;
+  'worker.personHint': string;
+  'worker.personInvalid': string;
+  'worker.saveName': string;
+  'worker.myWorker': string;
+  'worker.statusOnline': string;
+  'worker.statusOffline': string;
+  'worker.onHost': string;
+  'worker.agentsTitle': string;
+  'worker.agentsNone': string;
+  'worker.offlineHint': string;
+  'worker.noTokenHint': string;
+  'worker.createToken': string;
+  'worker.rotateToken': string;
+  'worker.revokeToken': string;
+  'worker.tokenOnce': string;
+  'worker.runCommand': string;
+  'worker.copyCommand': string;
+  'worker.copied': string;
+  'worker.requestFailed': string;
 }

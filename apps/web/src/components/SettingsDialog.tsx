@@ -68,6 +68,7 @@ import {
 import { ExportDiagnosticsRow } from './ExportDiagnosticsButton';
 import { Icon } from './Icon';
 import { LabsSection } from './LabsSection';
+import { RemoteWorkerSection } from './RemoteWorkerSection';
 import { defaultAgentModelId, effectiveAgentModelChoice } from './agentModelSelection';
 import {
   CUSTOM_MODEL_SENTINEL,
@@ -243,6 +244,7 @@ export type SettingsSection =
   | 'projectLocations'
   | 'memory'
   | 'privacy'
+  | 'worker'
   // 'library' is consumed by the EntryShell library route — App opens it
   // via this same openSettings entry point, so SettingsSection must
   // accept the token even though SettingsDialog itself has no Library
@@ -3893,6 +3895,7 @@ export function SettingsDialog({
   const sectionHeader: Record<SettingsSection, { title: string; subtitle: string }> = {
     general: { title: t('settings.general'), subtitle: t('settings.generalHint') },
     labs: { title: t('labs.title'), subtitle: t('labs.navHint') },
+    worker: { title: t('worker.navTitle'), subtitle: t('worker.navHint') },
     execution: { title: t('settings.title'), subtitle: t('settings.subtitle') },
     workspace: { title: t('settings.workspace'), subtitle: t('settings.workspaceHint') },
     instructions: {
@@ -4394,6 +4397,17 @@ export function SettingsDialog({
               <span>
                 <strong>{t('labs.title')}</strong>
                 <small>{t('labs.navHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'worker' ? ' active' : ''}`}
+              onClick={() => setActiveSection('worker')}
+            >
+              <Icon name="terminal" size={18} />
+              <span>
+                <strong>{t('worker.navTitle')}</strong>
+                <small>{t('worker.navHint')}</small>
               </span>
             </button>
             <button
@@ -6038,6 +6052,8 @@ export function SettingsDialog({
           {activeSection === 'labs' ? (
             <LabsSection autosave={labsAutosave} />
           ) : null}
+
+          {activeSection === 'worker' ? <RemoteWorkerSection /> : null}
 
           {activeSection === 'designSystems' ? (
             <DesignSystemsSection

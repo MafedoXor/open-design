@@ -1,0 +1,46 @@
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import express from 'express';
+import { registerWorkerRoutes, type RegisterWorkerRoutesDeps } from '../../src/routes/workers.js';
+import { createWorkerRegistry } from '../../src/workers/worker-registry.js';
+import { createWorkerTokenStore } from '../../src/workers/worker-tokens.js';
+
+export interface WorkerTestServer {
+  baseUrl: string;
+  close(): Promise<void>;
+}
+
+/** An HTTP server with only the worker routes mounted, on fast test timings. */
+export async function startWorkerTestServer({
+  offlineAfterMs = 30_000,
+}: { offlineAfterMs?: number | undefined } = {}): Promise<WorkerTestServer> {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'od-worker-server-'));
+  const app = express();
+  app.use(express.json());
+  const resolvedPortRef = { current: 0 };
+  const registry = createWorkerRegistry({ offlineAfterMs });
+  registerWorkerRoutes(app, {
+    tokens: createWorkerTokenStore({ filePath: path.join(dataDir, 'workers', 'tokens.json') }),
+    registry,
+    // The worker routes read only `resolvedPortRef` from the HTTP deps.
+    http: { resolvedPortRef } as unknown as RegisterWorkerRoutesDeps['http'],
+    heartbeatIntervalMs: 50,
+    pingIntervalMs: 50,
+  });
+  const server = await new Promise<Server>((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  resolvedPortRef.current = (server.address() as AddressInfo).port;
+  return {
+    baseUrl: `http://127.0.0.1:${resolvedPortRef.current}`,
+    async close() {
+      registry.closeAll();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(dataDir, { recursive: true, force: true });
+    },
+  };
+}
