@@ -49,3 +49,14 @@ export async function startWorkerTestServer({
     },
   };
 }
+
+/** Resolves once `person`'s worker shows as online, or throws after a few seconds. */
+export async function waitForWorkerOnline(server: WorkerTestServer, person: string): Promise<void> {
+  const deadline = Date.now() + 3_000;
+  for (;;) {
+    const status = (await (await fetch(`${server.baseUrl}/api/workers/${person}`)).json()) as { online?: boolean };
+    if (status.online) return;
+    if (Date.now() > deadline) throw new Error(`${person}'s worker did not come online`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}

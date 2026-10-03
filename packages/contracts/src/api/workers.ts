@@ -123,6 +123,38 @@ export function normalizeRunTarget(value: unknown): RunTarget | null {
  */
 export type WorkerRunStdin = { prompt: string } | 'pipe' | 'ignore';
 
+/**
+ * The project a worker run works on. The worker downloads it into a directory
+ * of its own before the agent starts (`workerBridgeRunProjectPath`) and sends
+ * back what the agent changed before reporting the exit
+ * (a POST to the same `workerBridgeRunProjectPath`).
+ */
+export interface WorkerRunProject {
+  id: string;
+  /**
+   * The project's absolute path on the server. The worker rewrites it to its
+   * own copy wherever it appears in `args` and in `OD_PROJECT_DIR`.
+   */
+  dir: string;
+}
+
+/**
+ * The only environment variables a server may set for an agent on a worker:
+ * what the agent needs to call back into the server for this run. Provider
+ * credentials and every other variable come from the worker PC itself. The
+ * worker supplies `OD_DAEMON_URL`, `OD_BIN` and `OD_NODE_BIN` on its own,
+ * because only it knows how it reaches the server and where its `od` is.
+ */
+export const WORKER_RUN_ENV_KEYS = [
+  'OD_TOOL_TOKEN',
+  'OD_PROJECT_ID',
+  'OD_PROJECT_DIR',
+  'OD_WORKSPACE_ID',
+  'OD_WORKSPACE_MEMBER_ID',
+] as const;
+
+export type WorkerRunEnvKey = (typeof WORKER_RUN_ENV_KEYS)[number];
+
 /** Server → worker, on the channel: start an agent process for this run. */
 export interface WorkerRunStartEvent {
   runId: string;
@@ -130,6 +162,9 @@ export interface WorkerRunStartEvent {
   agentId: string;
   args: string[];
   stdin: WorkerRunStdin;
+  /** Absent for a run without a project: the agent starts in an empty directory. */
+  project?: WorkerRunProject;
+  env?: Partial<Record<WorkerRunEnvKey, string>>;
 }
 
 /** Server → worker: more bytes for the agent's stdin (`stdin: 'pipe'` runs). */
@@ -168,8 +203,10 @@ export interface WorkerRunOutputRequest {
 }
 
 /**
- * Worker → server: the agent process ended. `error` is set when it could not
- * start at all (for example the agent CLI is not installed on the PC).
+ * Worker → server: the agent process ended. `error` is set when the worker
+ * could not do its part of the run: start the agent at all (for example the
+ * agent CLI is not installed on the PC), copy the project to the PC, or send
+ * the agent's file changes back. The run then fails.
  */
 export interface WorkerRunExitRequest {
   code: number | null;
@@ -181,7 +218,7 @@ export interface WorkerRunAckResponse {
   ok: true;
 }
 
-/** Express route patterns for the two endpoints below. */
+/** Express route patterns for the output and exit endpoints below. */
 export const WORKER_BRIDGE_RUN_OUTPUT_ROUTE = '/api/worker-bridge/runs/:runId/output';
 export const WORKER_BRIDGE_RUN_EXIT_ROUTE = '/api/worker-bridge/runs/:runId/exit';
 
@@ -191,4 +228,32 @@ export function workerBridgeRunOutputPath(runId: string): string {
 
 export function workerBridgeRunExitPath(runId: string): string {
   return `/api/worker-bridge/runs/${encodeURIComponent(runId)}/exit`;
+}
+
+/**
+ * GET: the run's project as a gzip tar, every regular file relative to the
+ * project root. POST: the agent's changes, as a gzip tar laid out as below.
+ * Both answer 404 once the run has exited or for a run without a project.
+ */
+export const WORKER_BRIDGE_RUN_PROJECT_ROUTE = '/api/worker-bridge/runs/:runId/project';
+
+export function workerBridgeRunProjectPath(runId: string): string {
+  return `/api/worker-bridge/runs/${encodeURIComponent(runId)}/project`;
+}
+
+/**
+ * Layout of the changes archive a worker POSTs to the project route. Every
+ * file the agent created or changed sits under `project/` at its project
+ * path; the one top-level `deleted.json` is a JSON array of project paths the
+ * agent removed. Keeping the agent's files under a prefix means no project
+ * file can be mistaken for the deletion list.
+ */
+export const WORKER_CHANGES_FILES_PREFIX = 'project/';
+export const WORKER_CHANGES_DELETED_ENTRY = 'deleted.json';
+
+/** Server → worker: what the server applied from a changes archive. */
+export interface WorkerRunChangesResponse {
+  ok: true;
+  written: number;
+  deleted: number;
 }

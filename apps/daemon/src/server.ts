@@ -902,7 +902,12 @@ import { registerConnectorRoutes } from './connectors/routes.js';
 import { registerActiveContextRoutes } from './routes/active-context.js';
 import { isWorkerBridgePath, registerWorkerRoutes } from './routes/workers.js';
 import { createWorkerRegistry } from './workers/worker-registry.js';
-import { createRemoteRunDispatcher, WorkerOfflineError } from './workers/remote-runs.js';
+import {
+  createRemoteRunDispatcher,
+  WorkerOfflineError,
+  workerAgentSessionCwd,
+  workerRunEnv,
+} from './workers/remote-runs.js';
 import { createWorkerTokenStore } from './workers/worker-tokens.js';
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
@@ -11624,6 +11629,10 @@ export async function startServer({
     // no-project runs (packaged daemons / service launches do not start
     // their working directory from the workspace root).
     const effectiveCwd = cwd ?? PROJECT_ROOT;
+    // The directory a resumable agent session belongs to. A worker run's
+    // session lives on that person's PC, so a session started there and one
+    // started on the server never resume each other.
+    const agentSessionCwd = runTarget ? workerAgentSessionCwd(runTarget.person, effectiveCwd) : effectiveCwd;
     // Baseline the project's artifact files before the agent runs, so the
     // run-finished handler can diff against them and report `artifact_count`
     // for ANY agent (not just claude_code). Only for real project runs: a
@@ -11910,7 +11919,10 @@ export async function startServer({
         resolveRunArtifactOutcomeBeforeFinish();
       }
     };
-    const extraAllowedDirs = [
+    // These are server paths outside the project, which do not exist on a
+    // worker PC. A worker run reaches its skills through the `.od-skills/`
+    // copy staged inside the project instead.
+    const extraAllowedDirs = runTarget ? [] : [
       ...resolveChatExtraAllowedDirs({
         agentId,
         skillsDir: SKILLS_DIR,
@@ -12052,7 +12064,7 @@ export async function startServer({
             conversationId: run.conversationId,
             agentId: def.id,
             currentModel: safeModel ?? null,
-            currentCwd: effectiveCwd,
+            currentCwd: agentSessionCwd,
             currentAssistantMessageId: run.assistantMessageId ?? null,
           })
         : { storedSessionId: null as string | null, resumeSessionId: null as string | null, newSessionId: undefined as string | undefined, isResuming: false, storedStablePromptHash: null as string | null, storedInputTokens: null as number | null, storedStableSections: null as StableSectionHashes | null, invalidationReason: null };
@@ -13092,7 +13104,7 @@ export async function startServer({
           stablePromptHash: currentStableHash,
           stablePromptSections: currentStableSectionsJson,
           model: safeModel ?? null,
-          cwd: effectiveCwd,
+          cwd: agentSessionCwd,
           lastMessageId: run.assistantMessageId ?? null,
           lastInputTokens: observedInputTokensForSession(),
         });
@@ -13215,7 +13227,7 @@ export async function startServer({
           stablePromptHash: currentStableHash,
           stablePromptSections: currentStableSectionsJson,
           model: safeModel ?? null,
-          cwd: effectiveCwd,
+          cwd: agentSessionCwd,
           lastMessageId: run.assistantMessageId ?? null,
           lastInputTokens: observedInputTokensForSession(),
         });
@@ -13859,7 +13871,7 @@ export async function startServer({
             stablePromptHash: currentStableHash,
             stablePromptSections: currentStableSectionsJson,
             model: safeModel ?? null,
-            cwd: effectiveCwd,
+            cwd: agentSessionCwd,
             lastMessageId: run.assistantMessageId ?? null,
             lastInputTokens: observedInputTokensForSession(),
           });
@@ -13887,7 +13899,7 @@ export async function startServer({
             stablePromptHash: currentStableHash,
             stablePromptSections: currentStableSectionsJson,
             model: safeModel ?? null,
-            cwd: effectiveCwd,
+            cwd: agentSessionCwd,
             lastMessageId: run.assistantMessageId ?? null,
             lastInputTokens: observedInputTokensForSession(),
           });
@@ -14255,8 +14267,9 @@ export async function startServer({
     // If detection can't find the binary, surface a friendly SSE error
     // pointing at /api/agents instead of silently falling back to
     // spawn(def.bin) — that fallback re-introduces the exact ENOENT symptom
-    // from issue #10.
-    if (!resolvedBin || !agentLaunch.launchPath) {
+    // from issue #10. A worker run needs the CLI on the worker's PC, not
+    // here; the worker reports when it is missing there.
+    if (!runTarget && (!resolvedBin || !agentLaunch.launchPath)) {
       cleanupPromptFile();
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
@@ -14486,12 +14499,14 @@ export async function startServer({
         return;
       }
       spawnedAgentEnv = env;
-      const invocation = createCommandInvocation({
+      // A worker run resolves its own executable on the PC; this server may
+      // not have the agent CLI at all.
+      const invocation = runTarget ? null : createCommandInvocation({
         command: agentLaunch.launchPath,
         args,
         env,
       });
-      if (def.streamFormat === CODEX_APP_SERVER_STREAM_FORMAT) {
+      if (invocation && def.streamFormat === CODEX_APP_SERVER_STREAM_FORMAT) {
         codexCleanupInvocation = {
           command: invocation.command, args: [...invocation.args], env: { ...env }, cwd: effectiveCwd,
           ...(invocation.windowsVerbatimArguments !== undefined
@@ -14518,7 +14533,8 @@ export async function startServer({
         ? { prompt: composed }
         : stdinMode;
       // On a worker only the process moves: it gets the same argv and prompt,
-      // and its output comes back through the same stdout/stderr handlers.
+      // works on a copy of the project, and its output and file changes come
+      // back through the same stdout/stderr handlers and project directory.
       const spawnedAgent = runTarget
         ? {
             child: remoteRuns.spawn(runTarget.person, {
@@ -14526,6 +14542,10 @@ export async function startServer({
               agentId: def.id,
               args: [...args],
               stdin: agentStdin,
+              ...(cwd && typeof projectId === 'string' && projectId
+                ? { project: { id: projectId, dir: cwd } }
+                : {}),
+              env: workerRunEnv(env),
             }),
             processGroupId: null,
             promptDeliveredAtSpawn: typeof agentStdin === 'object',

@@ -4,6 +4,8 @@ import { createWorkerRegistry, type WorkerChannel } from '../src/workers/worker-
 import {
   createRemoteRunDispatcher,
   WorkerOfflineError,
+  workerAgentSessionCwd,
+  workerRunEnv,
   type RemoteAgentProcess,
 } from '../src/workers/remote-runs.js';
 
@@ -123,5 +125,47 @@ describe('remote run dispatcher', () => {
     const child = dispatcher.spawn('Bob', { runId: 'r1', agentId: 'claude', args: [], stdin: { prompt: 'p' } });
     expect(child.stdin).toBeNull();
     expect(child.pid).toBeUndefined();
+  });
+});
+
+describe('what a worker run takes from the server', () => {
+  it('sends the agent only the variables it needs to call back into the server', () => {
+    expect(workerRunEnv({
+      OD_TOOL_TOKEN: 'tool',
+      OD_PROJECT_ID: 'p1',
+      OD_PROJECT_DIR: '/data/projects/p1',
+      OD_WORKSPACE_ID: '',
+      OD_DAEMON_URL: 'http://127.0.0.1:7456',
+      OD_API_TOKEN: 'api',
+      ANTHROPIC_API_KEY: 'sk-ant',
+      PATH: '/usr/bin',
+    })).toEqual({
+      OD_TOOL_TOKEN: 'tool',
+      OD_PROJECT_ID: 'p1',
+      OD_PROJECT_DIR: '/data/projects/p1',
+      OD_WORKSPACE_ID: '',
+    });
+  });
+
+  it('serves the run\'s project directory to the worker that owns the run, until it exits', async () => {
+    const { dispatcher } = setup();
+    const child = dispatcher.spawn('Bob', {
+      runId: 'r1',
+      agentId: 'claude',
+      args: [],
+      stdin: 'ignore',
+      project: { id: 'p1', dir: '/data/projects/p1' },
+    });
+    const { closed } = collect(child);
+    expect(dispatcher.projectDir('Bob', 'r1')).toBe('/data/projects/p1');
+    expect(dispatcher.projectDir('Alice', 'r1')).toBeNull();
+    dispatcher.exit('Bob', 'r1', { code: 0, signal: null });
+    await closed;
+    expect(dispatcher.projectDir('Bob', 'r1')).toBeNull();
+  });
+
+  it('keeps a session started on a worker apart from one started on the server', () => {
+    expect(workerAgentSessionCwd('Bob', '/data/projects/p1')).not.toBe('/data/projects/p1');
+    expect(workerAgentSessionCwd('Bob', '/data/projects/p1')).not.toBe(workerAgentSessionCwd('Alice', '/data/projects/p1'));
   });
 });

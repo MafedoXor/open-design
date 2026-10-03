@@ -6,8 +6,10 @@ import {
   WORKER_BRIDGE_HEARTBEAT_PATH,
   WORKER_BRIDGE_RUN_EXIT_ROUTE,
   WORKER_BRIDGE_RUN_OUTPUT_ROUTE,
+  WORKER_BRIDGE_RUN_PROJECT_ROUTE,
   type WorkerAgentInfo,
   type WorkerRunAckResponse,
+  type WorkerRunChangesResponse,
   type WorkerRunExitRequest,
   type WorkerRunOutputChunk,
   type WorkerHeartbeatRequest,
@@ -29,6 +31,11 @@ import {
   type Result,
 } from '../http/index.js';
 import type { RouteDeps } from '../server-context.js';
+import {
+  applyProjectChanges,
+  packProject,
+  ProjectChangesRejectedError,
+} from '../workers/project-transfer.js';
 import type { RemoteRunDispatcher } from '../workers/remote-runs.js';
 import type { WorkerRegistry } from '../workers/worker-registry.js';
 import type { WorkerTokenStore } from '../workers/worker-tokens.js';
@@ -266,5 +273,44 @@ export function registerWorkerRoutes(app: Express, options: RegisterWorkerRoutes
     if (!person) return refuseWorkerToken(res);
     if (!options.runs.exit(person, String(req.params.runId), parseExit(req.body))) return runGone(res);
     res.status(200).json(ack);
+  });
+
+  // The run's project travels to the worker before the agent starts, and the
+  // agent's changes come back before the exit report, while the run is live.
+  // Both bodies are gzip tars, so the global JSON parser leaves them alone and
+  // nothing is read before the worker token has been checked.
+  app.get(WORKER_BRIDGE_RUN_PROJECT_ROUTE, (req: Request, res: Response) => {
+    const person = options.tokens.verify(bearerToken(req));
+    if (!person) return refuseWorkerToken(res);
+    const projectDir = options.runs.projectDir(person, String(req.params.runId));
+    if (!projectDir) return runGone(res);
+    const archive = packProject(projectDir);
+    archive.once('error', (error) => {
+      if (!res.headersSent) {
+        sendApiError(res, 500, createApiError('INTERNAL_ERROR', `could not pack the project: ${error.message}`));
+      } else {
+        res.destroy(error);
+      }
+    });
+    res.status(200).setHeader('content-type', 'application/gzip');
+    archive.pipe(res);
+  });
+
+  app.post(WORKER_BRIDGE_RUN_PROJECT_ROUTE, async (req: Request, res: Response) => {
+    const person = options.tokens.verify(bearerToken(req));
+    if (!person) return refuseWorkerToken(res);
+    const projectDir = options.runs.projectDir(person, String(req.params.runId));
+    if (!projectDir) return runGone(res);
+    try {
+      const applied = await applyProjectChanges(projectDir, req);
+      const body: WorkerRunChangesResponse = { ok: true, ...applied };
+      res.status(200).json(body);
+    } catch (error) {
+      if (error instanceof ProjectChangesRejectedError) {
+        const code = error.status === 413 ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST';
+        return sendApiError(res, error.status, createApiError(code, error.message));
+      }
+      sendApiError(res, 500, createApiError('INTERNAL_ERROR', `could not apply the changes: ${(error as Error).message}`));
+    }
   });
 }

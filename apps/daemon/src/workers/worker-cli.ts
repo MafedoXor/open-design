@@ -6,6 +6,7 @@ import type {
   WorkerTokenCreateResponse,
   WorkerTokenRevokeResponse,
 } from '@open-design/contracts';
+import { resolveDaemonCliPath } from '../daemon-paths.js';
 import { resolveDaemonUrl } from '../daemon-url.js';
 import { runWorker, WorkerTokenRejectedError } from './worker-client.js';
 import { createWorkerRunExecutor, type WorkerLaunch } from './worker-runs.js';
@@ -141,6 +142,8 @@ async function connect(parsed: ParsedArgs, deps: WorkerCliDeps): Promise<number>
     serverUrl,
     token,
     resolveLaunch: deps.resolveLaunch ?? await resolveLaunchOnThisPc(),
+    // An agent's `od` callbacks run this PC's own CLI, with the Node running this worker.
+    cliEnv: { OD_BIN: resolveDaemonCliPath(deps.env), OD_NODE_BIN: process.execPath },
     onEvent: (event) => {
       if (event.type === 'started') {
         deps.stderr(`[worker] run ${event.runId}: starting ${event.agentId}\n`);
@@ -173,14 +176,14 @@ async function connect(parsed: ParsedArgs, deps: WorkerCliDeps): Promise<number>
       },
     });
   } catch (error) {
-    executor.stopAll();
+    await executor.stopAll();
     if (error instanceof WorkerTokenRejectedError) {
       deps.stderr(`[worker] ${error.message}. Ask for a new token with: od worker token create --person <name>\n`);
       return 1;
     }
     throw error;
   }
-  executor.stopAll();
+  await executor.stopAll();
   deps.stderr('[worker] stopped\n');
   return 0;
 }

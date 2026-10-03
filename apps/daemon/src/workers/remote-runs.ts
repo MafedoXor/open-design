@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import {
+  WORKER_RUN_ENV_KEYS,
   WORKER_RUN_EVENTS,
   type WorkerRunExitRequest,
   type WorkerRunKillEvent,
@@ -19,9 +20,33 @@ import type { WorkerRegistry } from './worker-registry.js';
  * `exit`/`close`, `kill`), so the chat-run launcher feeds the worker's output
  * through exactly the parsers and finish logic a local agent gets.
  *
- * Invariant: a run's output and exit are accepted only from the person whose
- * worker the run was handed to, and only until it has exited.
+ * Invariant: a run's output, exit and project files are accepted only from
+ * the person whose worker the run was handed to, and only until it has
+ * exited. Its project is served to that person only for the same window.
  */
+
+/**
+ * The variables of a run's environment a worker may receive: only those the
+ * agent needs to call back into the server for this run. Everything else,
+ * provider credentials included, stays on the server.
+ */
+export function workerRunEnv(env: NodeJS.ProcessEnv): NonNullable<WorkerRunStartEvent['env']> {
+  const picked: NonNullable<WorkerRunStartEvent['env']> = {};
+  for (const key of WORKER_RUN_ENV_KEYS) {
+    const value = env[key];
+    if (typeof value === 'string') picked[key] = value;
+  }
+  return picked;
+}
+
+/**
+ * The working-directory identity a resumable agent session is stored under
+ * when it ran on `person`'s worker. It differs from the server's own, so
+ * the server never resumes a session that lives on a PC, or the reverse.
+ */
+export function workerAgentSessionCwd(person: string, projectDir: string): string {
+  return `worker:${person}:${projectDir}`;
+}
 
 /** Exit code reported when the worker could not start the agent at all. */
 const WORKER_SPAWN_FAILED_EXIT_CODE = 127;
@@ -55,6 +80,12 @@ export interface RemoteRunDispatcher {
   output(person: string, runId: string, chunks: WorkerRunOutputChunk[]): boolean;
   /** The worker reported the process ended. False when `person` does not own a live run `runId`. */
   exit(person: string, runId: string, result: WorkerRunExitRequest): boolean;
+  /**
+   * The server-side project directory of live run `runId`, for `person`'s
+   * worker to download or send changes to. `null` when `person` does not own
+   * a live run `runId` or the run has no project.
+   */
+  projectDir(person: string, runId: string): string | null;
 }
 
 class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
@@ -132,7 +163,7 @@ class RemoteProcess extends EventEmitter implements RemoteAgentProcess {
 }
 
 export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegistry }): RemoteRunDispatcher {
-  const live = new Map<string, { person: string; process: RemoteProcess }>();
+  const live = new Map<string, { person: string; process: RemoteProcess; projectDir: string | null }>();
 
   const owned = (person: string, runId: string) => {
     const entry = live.get(runId);
@@ -147,7 +178,7 @@ export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegist
         request.stdin === 'pipe',
       );
       if (!registry.send(person, WORKER_RUN_EVENTS.start, request)) throw new WorkerOfflineError(person);
-      live.set(request.runId, { person, process });
+      live.set(request.runId, { person, process, projectDir: request.project?.dir ?? null });
       return process;
     },
     output(person, runId, chunks) {
@@ -162,6 +193,9 @@ export function createRemoteRunDispatcher({ registry }: { registry: WorkerRegist
       live.delete(runId);
       entry.process.end(result);
       return true;
+    },
+    projectDir(person, runId) {
+      return owned(person, runId)?.projectDir ?? null;
     },
   };
 }
