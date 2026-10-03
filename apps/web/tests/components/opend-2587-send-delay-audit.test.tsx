@@ -110,6 +110,8 @@ vi.mock('../../src/collab/useProjectCollab', async (importOriginal) => ({
 vi.mock('../../src/providers/daemon', () => ({
   fetchChatRunStatus: vi.fn(),
   listActiveChatRuns: vi.fn().mockResolvedValue([]),
+  listActiveProjectRuns: vi.fn().mockResolvedValue([]),
+  RUNS_CHANGED_EVENT: 'open-design:runs-changed',
   listProjectRuns: vi.fn().mockResolvedValue([]),
   publishDaemonRunFinishedEvent: vi.fn(),
   reattachDaemonRun: vi.fn(),

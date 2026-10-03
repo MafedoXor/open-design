@@ -1667,8 +1667,27 @@ export async function listActiveChatRuns(
   conversationId: string,
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<ChatRunStatusResponse[]> {
+  return listActiveRuns({ projectId, conversationId }, workspaceContext);
+}
+
+/**
+ * Every active run in one project, across all conversations and people — what
+ * the project run lock is made of (`workers/project-busy.ts`).
+ */
+export async function listActiveProjectRuns(
+  projectId: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): Promise<ChatRunStatusResponse[]> {
+  return listActiveRuns({ projectId }, workspaceContext);
+}
+
+/** Active runs matching `query`; empty when the daemon cannot be asked. */
+async function listActiveRuns(
+  query: { projectId: string; conversationId?: string },
+  workspaceContext?: WorkspaceCollabContext | null,
+): Promise<ChatRunStatusResponse[]> {
   try {
-    const qs = new URLSearchParams({ projectId, conversationId, status: 'active' });
+    const qs = new URLSearchParams({ ...query, status: 'active' });
     const resp = await fetch(`/api/runs?${qs.toString()}`, {
       ...(workspaceContext
         ? { headers: workspaceProjectHeaders(workspaceContext) }

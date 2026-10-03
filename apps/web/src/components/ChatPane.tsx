@@ -127,6 +127,7 @@ import { commentTargetDisplayName, commentsToAttachments, simplePositionLabel } 
 import { AssistantMessage, type QuestionFormSubmitHandler } from './AssistantMessage';
 import { chatSeam } from './chat/ChatRoot';
 import { PlanPill } from './chat/PlanPill';
+import { ProjectBusyNotice } from './chat/ProjectBusyNotice';
 import { QueuedSendStack, type QueuedSendDropEdge } from './chat/QueuedSendStack';
 import { ChatScrollEdge } from './chat/ChatScrollEdge';
 import { planPillState } from '../runtime/chat/plan-pill';
@@ -4040,6 +4041,7 @@ export function ChatPane({
     <>
       {/* 插件 / 设计百宝箱 live inside the composer's "+" menu (below 工作目录,
           hover to expand); they no longer sit as quick pills above the input. */}
+      <ProjectBusyNotice projectId={projectId} />
     <ChatComposer
       ref={composerRef}
       quotes={quotes}

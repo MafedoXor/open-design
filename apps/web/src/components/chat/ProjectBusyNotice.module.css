@@ -1,0 +1,20 @@
+/* The project-busy line above the chat composer (ProjectBusyNotice.tsx). */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-subtle);
+  font-size: var(--chat-t-cap);
+  line-height: var(--chat-lh-row);
+  color: var(--chat-text-muted);
+}
+
+.notice > svg {
+  flex: none;
+  margin-top: 2px;
+}

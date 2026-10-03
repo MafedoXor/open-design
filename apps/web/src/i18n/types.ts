@@ -2947,6 +2947,7 @@ export interface Dict {
   'chat.runError.title.tierUpgradeRequired': string;
   'chat.runError.tierUpgradeRequiredMessage': string;
   'chat.runError.title.generic': string;
+  'chat.runError.title.workerOffline': string;
   'chat.runError.title.artifactMissing': string;
   'chat.runError.signInMessage.amr': string;
   'chat.runError.signInMessage.other': string;
@@ -2980,6 +2981,7 @@ export interface Dict {
   'chat.runError.title.accountSuspended': string;
   'chat.runError.accountSuspendedMessage': string;
   'chat.runError.fallbackMessage': string;
+  'chat.runError.workerOfflineMessage': string;
   'chat.runError.cliSessionRefusedMessage': string;
   'chat.runError.strategyTaskStateMismatchMessage': string;
   'chat.runError.regionNotSupportedMessage': string;
@@ -5726,4 +5728,6 @@ export interface Dict {
   'worker.runOnWorker': string;
   'worker.runOnHint': string;
   'worker.runOnOffline': string;
+  'worker.projectBusy': string;
+  'worker.projectBusyOtherRun': string;
 }

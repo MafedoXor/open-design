@@ -343,6 +343,7 @@ export type RunFailureMessageKey =
   | 'chat.runError.clarificationRepeatedMessage'
   | 'chat.runError.regionNotSupportedMessage'
   | 'chat.runError.clientEnvironmentMessage'
+  | 'chat.runError.workerOfflineMessage'
   | null;
 
 /**
@@ -519,6 +520,7 @@ export type RunFailureTitleKey =
   | 'chat.runError.title.hostPolicyBlock'
   | 'chat.runError.title.localStorageFailure'
   | 'chat.runError.title.tierUpgradeRequired'
+  | 'chat.runError.title.workerOffline'
   | 'chat.runError.title.generic';
 
 export interface RunFailureUi {
@@ -1045,6 +1047,13 @@ const AGENT_AGNOSTIC_FAILURE_UI: Record<string, RunFailureUi> = {
   ROLE_MARKER_HALLUCINATION: retryWithGuidance(
     'chat.runError.title.outputInvalid',
     'chat.runError.outputInvalidMessage',
+  ),
+  // The run was sent to the person's own worker and it is not connected. The
+  // daemon never falls back to the server, so the fix is to start the worker
+  // (or choose the server in Settings → Remote worker) and retry.
+  WORKER_OFFLINE: retryWithGuidance(
+    'chat.runError.title.workerOffline',
+    'chat.runError.workerOfflineMessage',
   ),
   // Checked-in runtime def failed strict validation (user_action: fix_config).
   // Ladder rung 4 (catalogue R-031: flow F10, "retryable: no"): the user cannot

@@ -349,6 +349,9 @@ describe('resolveRunFailureUi', () => {
       ['AGENT_PROMPT_TOO_LARGE', 'chat.runError.title.promptTooLarge', 'chat.runError.promptTooLargeMessage'],
       ['TOOL_LOOP_DETECTED', 'chat.runError.title.toolLoop', 'chat.runError.toolLoopMessage'],
       ['ROLE_MARKER_HALLUCINATION', 'chat.runError.title.outputInvalid', 'chat.runError.outputInvalidMessage'],
+      // The run went to the person's own worker, which is not connected. It
+      // never fell back to the server; retry once the worker is back.
+      ['WORKER_OFFLINE', 'chat.runError.title.workerOffline', 'chat.runError.workerOfflineMessage'],
     ];
     for (const [code, titleKey, messageKey] of cases) {
       for (const agent of ['claude', 'codex', 'amr', 'antigravity', null]) {

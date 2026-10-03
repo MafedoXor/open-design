@@ -25,7 +25,11 @@ vi.mock('../../src/components/AssistantMessage', () => ({
 vi.mock('../../src/components/ChatComposer', () => ({
   ChatComposer: forwardRef((_props, _ref) => <div data-testid="composer" />),
 }));
-vi.mock('../../src/providers/daemon', () => ({ fetchVelaLoginStatus: fetchVelaLoginStatusMock }));
+vi.mock('../../src/providers/daemon', () => ({
+  fetchVelaLoginStatus: fetchVelaLoginStatusMock,
+  listActiveProjectRuns: vi.fn().mockResolvedValue([]),
+  RUNS_CHANGED_EVENT: 'open-design:runs-changed',
+}));
 
 const signedOut: VelaLoginStatus = { loggedIn: false, profile: 'prod', user: null, configPath: '' };
 beforeEach(() => {

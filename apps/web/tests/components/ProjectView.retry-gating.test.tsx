@@ -146,6 +146,8 @@ vi.mock('../../src/providers/daemon', () => ({
   GENERIC_DAEMON_DISCONNECT_MESSAGE: 'daemon stream disconnected before run completed',
   fetchChatRunStatus: (...args: unknown[]) => fetchChatRunStatus(...args),
   listActiveChatRuns: (...args: unknown[]) => listActiveChatRuns(...args),
+  listActiveProjectRuns: vi.fn().mockResolvedValue([]),
+  RUNS_CHANGED_EVENT: 'open-design:runs-changed',
   listProjectRuns: (...args: unknown[]) => listProjectRuns(...args),
   publishDaemonRunFinishedEvent: vi.fn(),
   reattachDaemonRun: vi.fn(),
