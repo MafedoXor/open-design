@@ -5,6 +5,7 @@ import {
   type PublicProjectFilePublication,
 } from '@open-design/contracts';
 import { boundedRequestErrorCode } from '../analytics/workspace';
+import { applyWorkerAgents, workerForNextRun } from '../workers/worker-agents';
 import type {
   ConnectorAuthConfigPrepareResponse,
   ConnectorDetail,
@@ -166,7 +167,7 @@ export async function fetchAgents(options?: { throwOnError?: boolean }): Promise
       return [];
     }
     const json = (await resp.json()) as { agents: AgentInfo[] };
-    return json.agents ?? [];
+    return applyWorkerAgents(json.agents ?? [], await workerForNextRun());
   } catch (err) {
     if (options?.throwOnError) throw err;
     return [];
@@ -186,6 +187,7 @@ export async function fetchAgentsStream(args: {
   signal?: AbortSignal;
 }): Promise<AgentInfo[]> {
   const { onAgent, signal } = args;
+  const worker = await workerForNextRun();
   const resp = await fetch('/api/agents?stream=1', {
     cache: 'no-store',
     headers: { Accept: 'text/event-stream' },
@@ -232,7 +234,7 @@ export async function fetchAgentsStream(args: {
     }
     if (eventName === 'agent' && data) {
       try {
-        const agent = JSON.parse(data) as AgentInfo;
+        const agent = applyWorkerAgents([JSON.parse(data) as AgentInfo], worker)[0]!;
         collected.push(agent);
         onAgent(agent);
       } catch {
